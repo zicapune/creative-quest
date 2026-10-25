@@ -46,7 +46,23 @@ type Any = any;
 const SECRETS: Record<string, string> = {};
 let secretsAt = 0;
 const env = (k: string, d = '') => Deno.env.get(k) || SECRETS[k] || d;
-const sql = postgres(env('SUPABASE_DB_URL'), { prepare: false, max: 4, idle_timeout: 20, connect_timeout: 10 });
+// Connect through Supavisor's TRANSACTION pooler (port 6543), not the direct database port:
+// each function instance would otherwise hold its own direct connections, and a classroom of
+// students spins up enough instances to exhaust the free plan's 60 Postgres connections.
+// DB_POOLER_HOST secret overrides the host; set it to "direct" to bypass the pooler.
+function dbUrl() {
+  const raw = Deno.env.get('SUPABASE_DB_URL') || '';
+  const host = Deno.env.get('DB_POOLER_HOST') || 'aws-0-ap-south-1.pooler.supabase.com';
+  if (host === 'direct') return raw;
+  try {
+    const u = new URL(raw);
+    const m = /^db\.([a-z0-9]{20})\.supabase\.co$/.exec(u.hostname);
+    if (!m) return raw;
+    u.hostname = host; u.port = '6543'; u.username = 'postgres.' + m[1];
+    return u.toString();
+  } catch (_) { return raw; }
+}
+const sql = postgres(dbUrl(), { prepare: false, max: 3, idle_timeout: 10, max_lifetime: 300, connect_timeout: 10 });
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
