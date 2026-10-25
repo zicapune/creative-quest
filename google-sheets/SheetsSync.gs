@@ -63,8 +63,8 @@ var SYNC = {
 
 /** Fill both values, Run, then you may blank them again (they stay saved in Script Properties). */
 function saveSyncSettings() {
-  var FUNCTION_URL = '';   // https://<your-project>.supabase.co/functions/v1/quest
-  var SYNC_TOKEN = '';     // exactly the same SYNC_TOKEN you saved as a Supabase secret
+  var FUNCTION_URL = 'https://elrgbounsplqheblmvaa.supabase.co/functions/v1/quest';
+  var SYNC_TOKEN = '';     // paste the SYNC_TOKEN here (never commit it)
   var p = PropertiesService.getScriptProperties();
   if (FUNCTION_URL) p.setProperty('CQ_FUNCTION_URL', FUNCTION_URL.replace(/\/+$/, ''));
   if (SYNC_TOKEN) p.setProperty('CQ_SYNC_TOKEN', SYNC_TOKEN);

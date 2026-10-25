@@ -8,6 +8,8 @@
   var CFG = window.CQ_CONFIG || {};
   var base = String(CFG.SUPABASE_URL || '').replace(/\/+$/, '');
   var url = CFG.FUNCTION_URL || (base ? base + '/functions/v1/' + (CFG.FUNCTION_NAME || 'quest') : '');
+  // Run the function next to the database (Mumbai), wherever the phone is: one fast hop instead of many slow ones.
+  if (url && CFG.FUNCTION_REGION) url += (url.indexOf('?') < 0 ? '?' : '&') + 'forceFunctionRegion=' + encodeURIComponent(CFG.FUNCTION_REGION);
   var mode = url ? 'live' : 'demo';
 
   var demoReady = null;

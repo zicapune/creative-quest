@@ -14,7 +14,7 @@
      node tools/loadtest.mjs [users=20] [--keep]
    Exit code 0 = pass, 1 = fail.
    ===================================================================== */
-const URL_ = process.env.FUNCTION_URL;
+const URL_ = process.env.FUNCTION_URL ? process.env.FUNCTION_URL + (process.env.FUNCTION_REGION ? (process.env.FUNCTION_URL.includes('?') ? '&' : '?') + 'forceFunctionRegion=' + process.env.FUNCTION_REGION : '') : '';
 const TOKEN = process.env.SYNC_TOKEN;
 const ANON = process.env.ANON_KEY || '';
 const USERS = Number(process.argv.find((a) => /^\d+$/.test(a)) || 20);

@@ -21,9 +21,11 @@ jobs:
         with:
           node-version: 20
       - name: Students at the same time
+        shell: bash
         run: |
           URL=$(grep -o "SUPABASE_URL: '[^']*'" assets/js/config.js | cut -d"'" -f2)
           export FUNCTION_URL="$URL/functions/v1/quest"
+          export FUNCTION_REGION=ap-south-1   # same as the site (config.js FUNCTION_REGION)
           export SYNC_TOKEN=$(jq -r .token tools/loadtest-run.json)
           export THINK_MS=$(jq -r '.thinkMs // 400' tools/loadtest-run.json)
           status=0
