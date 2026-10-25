@@ -29,25 +29,31 @@ Phone ─► GitHub Pages (this repo's website)
 | `website-popup/` | Optional pop-up card for the ZICA Pune website |
 | `CHATGPT-IMAGE-PROMPTS.md` | Prompts for the certificate background and avatar |
 
-## One-time setup
+## Setup (done)
 
+Supabase project `creative-quest` (Mumbai, ref `elrgbounsplqheblmvaa`) is live: tables, 50 questions, the `quest` function.
+The site's `assets/js/config.js` holds the project URL and the public anon key; every push to `main` publishes the site.
+
+Secrets live in the database table `private.app_secrets` (not reachable from the website). A Supabase Edge Function secret with the same name wins.
+- `SYNC_TOKEN`: for the Google Sheet.
+- `OTP_PEPPER`.
+- `ALLOW_TEST_OTP`.
+- `BREVO_API_KEY`: when ready.
+- `LOADTEST_TOKEN`: only unlocks load-test actions.
+
+Still manual:
 1. **Pages:** repo **Settings → Pages → Source: GitHub Actions**. Leave *Custom domain* empty.
-2. **Supabase:** supabase.com → New project (region **Mumbai**, Free plan is fine). Then **Account (top-right) → Access Tokens → Generate new token**.
-3. **GitHub secrets & variables:** repo **Settings → Secrets and variables → Actions**
-   - *Secrets* tab:
-     - `SUPABASE_ACCESS_TOKEN`: the token from step 2.
-     - `SYNC_TOKEN`: any 32+ character password you make up.
-     - `BREVO_API_KEY`: when you have it.
-   - *Variables* tab:
-     - `SUPABASE_PROJECT_REF`: the 20-letter id from your project URL `https://<ref>.supabase.co`.
-     - `EMAIL_FROM`: the sender address you verified in Brevo.
-4. **Deploy + load test:** **Actions → Deploy Creative Quest → Run workflow** (keep "Run the 20-student load test" ticked). Green ✓ = live. The load-test result is on the run's summary page.
-5. **Google Sheet (Azpire Gmail):** new Sheet → **Extensions → Apps Script** → paste `google-sheets/SheetsSync.gs`. Then run these, in order:
-   - `SheetsSync.gs → saveSyncSettings`. Fill `FUNCTION_URL` = `https://<ref>.supabase.co/functions/v1/quest` and `SYNC_TOKEN` inside it first.
+2. **Google Sheet (Azpire Gmail):** new Sheet → **Extensions → Apps Script** → paste `google-sheets/SheetsSync.gs`. Then run, in order:
+   - `SheetsSync.gs → saveSyncSettings`. Fill `FUNCTION_URL` = `https://elrgbounsplqheblmvaa.supabase.co/functions/v1/quest` and `SYNC_TOKEN` inside it first.
    - `SheetsSync.gs → setupSheetsSync`
    - `SheetsSync.gs → installSyncTrigger`
+3. **Brevo:**
+   - Store the API key as `BREVO_API_KEY` (in `private.app_secrets`, or as an Edge Function secret).
+   - Set the setting `email_from_address` to a sender you verified in Brevo.
 
-Without `BREVO_API_KEY` the certificate step still works: the 6-digit code is shown on screen and the Sheet marks it *Test code (not verified)*. Add the key and re-run the workflow to switch to real emailed codes.
+Without Brevo the certificate step still works: the 6-digit code is shown on screen, and the Sheet marks it *Test code (not verified)*.
+
+**Load test:** edit `tools/loadtest-run.json` on `main`; the **Load test** workflow runs. Results land in `private.loadtest_runs` and on the run's summary page.
 
 ## Day-to-day
 

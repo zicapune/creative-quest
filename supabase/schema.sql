@@ -143,11 +143,13 @@ create table if not exists public.message_log (
 );
 create index if not exists msg_updated_idx on public.message_log (updated_at);
 create index if not exists msg_ref_idx on public.message_log (provider_ref);
+create index if not exists msg_lead_idx on public.message_log (lead_id);
+create index if not exists certs_attempt_idx on public.certificates (attempt_id);
 
 -- ------------------------------------------------------- updated_at stamps
 
 create or replace function public.touch_updated_at() returns trigger
-language plpgsql as $$ begin new.updated_at := now(); return new; end $$;
+language plpgsql set search_path = '' as $$ begin new.updated_at := now(); return new; end $$;
 
 do $$
 declare t text;
@@ -161,7 +163,7 @@ end $$;
 -- ------------------------------------------- atomic "lock in an answer"
 -- First answer for a question is final. Returns the stored answer either way.
 create or replace function public.record_answer(p_attempt text, p_qid text, p_choice int, p_correct int)
-returns jsonb language plpgsql as $$
+returns jsonb language plpgsql set search_path = '' as $$
 declare r public.attempts;
 begin
   update public.attempts
@@ -194,6 +196,27 @@ begin
   end loop;
 end $$;
 revoke execute on function public.record_answer(text, text, int, int) from anon, authenticated, public;
+revoke execute on function public.touch_updated_at() from anon, authenticated, public;
+
+-- -------------------------------------------- private secrets (no public API)
+-- The function reads SYNC_TOKEN / OTP_PEPPER / ALLOW_TEST_OTP / BREVO_API_KEY from here
+-- unless the same name is set as a Supabase Edge Function secret (that wins).
+create schema if not exists private;
+revoke all on schema private from public, anon, authenticated;
+create table if not exists private.app_secrets (
+  key text primary key, value text not null, updated_at timestamptz not null default now());
+alter table private.app_secrets enable row level security;
+revoke all on private.app_secrets from public, anon, authenticated;
+insert into private.app_secrets(key, value) values
+  ('SYNC_TOKEN', 'zcq_' || encode(extensions.gen_random_bytes(20), 'hex')),
+  ('OTP_PEPPER', encode(extensions.gen_random_bytes(32), 'hex')),
+  ('ALLOW_TEST_OTP', 'true')
+on conflict (key) do nothing;
+create table if not exists private.loadtest_runs (
+  id bigint generated always as identity primary key, created_at timestamptz not null default now(),
+  pass boolean not null default false, summary text not null default '');
+alter table private.loadtest_runs enable row level security;
+revoke all on private.loadtest_runs from public, anon, authenticated;
 
 -- ------------------------------------------------------------- settings
 insert into public.settings (key, value, notes) values
@@ -212,7 +235,7 @@ insert into public.settings (key, value, notes) values
   ('course_options',      'Animation (2D & 3D), VFX & Compositing, Game Art & Design, Graphic Design, Filmmaking & Video Editing, Not sure yet', 'Comma-separated; blank hides the field'),
   ('privacy_url',         '', 'Optional privacy policy link'),
   ('contact_line',        'ZICA Pune, Kothrud', 'Small line on the final screens'),
-  ('site_url',            '', 'REQUIRED for certificates: your live site, e.g. https://quest.zicapune.com (no trailing slash)'),
+  ('site_url',            'https://zicapune.github.io/creative-quest', 'REQUIRED for certificates: your live site, e.g. https://quest.zicapune.com (no trailing slash)'),
   ('logo_url',            'assets/img/logo.png', 'Official ZICA logo (path inside the site or https URL)'),
   ('avatar_name_url',     'assets/img/avatar-hello.png', 'Avatar on the name screen'),
   ('avatar_contact_url',  'assets/img/avatar-point.png', 'Avatar on the contact screen'),

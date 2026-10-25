@@ -39,6 +39,8 @@ async function call(action, body = {}, tries = 3) {
     }
   }
 }
+const OUT = [];
+const say = (...a) => { const line = a.join(' '); OUT.push(line); console.log(line); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const jitter = (ms) => ms * (0.5 + Math.random());
 
@@ -97,7 +99,7 @@ async function student(n) {
 const pct = (a, p) => { const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p / 100 * s.length))] || 0; };
 
 (async () => {
-  console.log(`Load test: ${USERS} students at once against ${URL_}`);
+  say(`Load test: ${USERS} students at once against ${URL_}`);
   await call('admin_purge_loadtest', { token: TOKEN }).catch(() => {});
   const t0 = performance.now();
   const results = await Promise.allSettled(Array.from({ length: USERS }, (_, i) => student(i + 1)));
@@ -118,12 +120,14 @@ const pct = (a, p) => { const s = [...a].sort((x, y) => x - y); return s[Math.mi
   if (report.linked_attempts !== expectAttempts) problems.push(`linked attempts ${report.linked_attempts} != ${expectAttempts}`);
   if (report.certificates !== USERS) problems.push(`certificates ${report.certificates} != ${USERS}`);
 
-  console.log(`\nFinished in ${secs}s · ${USERS - fails.length}/${USERS} students completed · ${retries} also replayed with set B`);
-  console.log('Database check:', JSON.stringify(report));
-  console.log('\nLatency (ms)      p50    p95    max   calls');
-  for (const [k, a] of Object.entries(lat)) console.log(`  ${k.padEnd(14)} ${String(Math.round(pct(a, 50))).padStart(6)} ${String(Math.round(pct(a, 95))).padStart(6)} ${String(Math.round(Math.max(...a))).padStart(6)} ${String(a.length).padStart(6)}`);
+  say(`\nFinished in ${secs}s · ${USERS - fails.length}/${USERS} students completed · ${retries} also replayed with set B`);
+  say('Database check:', JSON.stringify(report));
+  say('\nLatency (ms)      p50    p95    max   calls');
+  for (const [k, a] of Object.entries(lat)) say(`  ${k.padEnd(14)} ${String(Math.round(pct(a, 50))).padStart(6)} ${String(Math.round(pct(a, 95))).padStart(6)} ${String(Math.round(Math.max(...a))).padStart(6)} ${String(a.length).padStart(6)}`);
 
-  if (!KEEP) { const p = await call('admin_purge_loadtest', { token: TOKEN }); console.log(`\nCleaned up ${p.leads} test leads and ${p.attempts} test attempts.`); }
-  if (problems.length) { console.log('\n❌ FAIL\n- ' + problems.join('\n- ')); process.exit(1); }
-  console.log('\n✅ PASS — no lost or duplicated submissions.');
+  if (!KEEP) { const p = await call('admin_purge_loadtest', { token: TOKEN }); say(`\nCleaned up ${p.leads} test leads and ${p.attempts} test attempts.`); }
+  if (problems.length) say('\n❌ FAIL\n- ' + problems.join('\n- '));
+  else say('\n✅ PASS — no lost or duplicated submissions.');
+  await call('admin_loadtest_note', { token: TOKEN, pass: !problems.length, summary: OUT.join('\n') }).catch(() => {});
+  if (problems.length) process.exit(1);
 })().catch((e) => { console.error('❌ Load test crashed:', e.message); process.exit(1); });

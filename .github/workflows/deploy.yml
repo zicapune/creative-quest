@@ -12,6 +12,8 @@
 # Repository secrets (Settings → Secrets and variables → Actions → Secrets):
 #   SUPABASE_ACCESS_TOKEN   supabase.com → Account → Access Tokens → Generate
 #   SYNC_TOKEN              any long password (32+ chars). Same value goes in SheetsSync.gs
+#                           (not needed for the current setup: the token lives in the database table
+#                            private.app_secrets, created directly in Supabase)
 #   BREVO_API_KEY           (optional until ready) Brevo → SMTP & API → API keys
 # Repository VARIABLES (same page → Variables tab):
 #   SUPABASE_PROJECT_REF    the 20-letter id in your project URL (https://<ref>.supabase.co)
@@ -144,7 +146,11 @@ jobs:
           cp -r index.html certificate.html assets _site/
           touch _site/.nojekyll
           [ -f CNAME ] && cp CNAME _site/ || true
-          if [ "$LIVE" = "true" ] && [ -n "$SB_URL" ] && [ -n "$SB_ANON" ]; then
+          if grep -q "SUPABASE_URL: 'https://" _site/assets/js/config.js; then
+            # Keys already committed in config.js (set up directly in Supabase) → live site
+            rm -f _site/assets/js/demo.js _site/assets/js/demo-questions.js   # answer key never goes live
+            echo "LIVE build → $(grep -o "SUPABASE_URL: '[^']*'" _site/assets/js/config.js)"
+          elif [ "$LIVE" = "true" ] && [ -n "$SB_URL" ] && [ -n "$SB_ANON" ]; then
             sed -i "s#SUPABASE_URL: ''#SUPABASE_URL: '$SB_URL'#; s#SUPABASE_ANON_KEY: ''#SUPABASE_ANON_KEY: '$SB_ANON'#" _site/assets/js/config.js
             grep -q "$SB_URL" _site/assets/js/config.js || { echo "::error::config.js was not filled"; exit 1; }
             rm -f _site/assets/js/demo.js _site/assets/js/demo-questions.js   # answer key never goes live

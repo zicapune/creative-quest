@@ -11,8 +11,8 @@
    The anon/publishable key is MEANT to be public. Never paste the service_role / secret key here.
    ===================================================================== */
 window.CQ_CONFIG = {
-  SUPABASE_URL: '',
-  SUPABASE_ANON_KEY: '',
+  SUPABASE_URL: 'https://elrgbounsplqheblmvaa.supabase.co',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVscmdib3Vuc3BscWhlYmxtdmFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI5NTQyNTIsImV4cCI6MjEwODUzMDI1Mn0.UsIiV3Fy1UajAPBcXrLPj3gMpPfck2DuvGZ9FJCNZ_o',
   FUNCTION_NAME: 'quest',
   FUNCTION_URL: '',            // optional override (only for local testing)
 

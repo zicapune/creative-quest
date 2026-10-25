@@ -1,0 +1,34 @@
+# Runs N students at once against the live Supabase function and records the
+# result in the database (private.loadtest_runs). Triggered by editing
+# tools/loadtest-run.json on main, or by hand (Actions → Load test → Run workflow).
+name: Load test
+
+on:
+  push:
+    branches: [main]
+    paths: ['tools/loadtest-run.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  loadtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Students at the same time
+        run: |
+          URL=$(grep -o "SUPABASE_URL: '[^']*'" assets/js/config.js | cut -d"'" -f2)
+          export FUNCTION_URL="$URL/functions/v1/quest"
+          export SYNC_TOKEN=$(jq -r .token tools/loadtest-run.json)
+          export THINK_MS=$(jq -r '.thinkMs // 400' tools/loadtest-run.json)
+          status=0
+          for n in $(jq -r '.users[]' tools/loadtest-run.json); do
+            node tools/loadtest.mjs "$n" | tee -a loadtest.txt || status=1
+          done
+          { echo '## Load test'; echo '```'; cat loadtest.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status

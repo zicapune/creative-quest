@@ -41,7 +41,11 @@ import { parsePhoneNumberFromString } from 'npm:libphonenumber-js@1.11.18/max';
 // deno-lint-ignore no-explicit-any
 type Any = any;
 
-const env = (k: string, d = '') => Deno.env.get(k) ?? d;
+// Secrets: a Supabase function secret wins; otherwise the private.app_secrets table
+// (not reachable through the public API) — so setup needs no dashboard pasting.
+const SECRETS: Record<string, string> = {};
+let secretsAt = 0;
+const env = (k: string, d = '') => Deno.env.get(k) || SECRETS[k] || d;
 const sql = postgres(env('SUPABASE_DB_URL'), { prepare: false, max: 4, idle_timeout: 20, connect_timeout: 10 });
 
 const CORS = {
@@ -57,6 +61,19 @@ class UserError extends Error {
   constructor(message: string, code = 'user', fields?: Record<string, string>) { super(message); this.code = code; this.fields = fields; }
 }
 
+async function loadSecrets() {
+  if (Date.now() - secretsAt < 60_000) return;
+  try {
+    const rows = await sql`select key, value from private.app_secrets`;
+    for (const k of Object.keys(SECRETS)) delete SECRETS[k];
+    for (const r of rows) SECRETS[r.key] = String(r.value ?? '');
+    secretsAt = Date.now();
+  } catch (e) {
+    console.error('loadSecrets', e);
+    secretsAt = Date.now() - 50_000; // retry in ~10 s
+  }
+}
+
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { ...CORS, 'content-type': 'application/json; charset=utf-8' } });
 
@@ -66,6 +83,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   const url = new URL(req.url);
   try {
+    await loadSecrets();
     if (req.method === 'GET') {
       const a = url.searchParams.get('action');
       if (a === 'pdf') return await downloadPdf(url.searchParams);
@@ -138,11 +156,14 @@ function pickSet(sets: Record<string, Any[]>, attemptNo: number) {
   return { name, list: sets[name] };
 }
 
-/** tools/loadtest.mjs sends the SYNC_TOKEN as `lt`; its rows are tagged and kept out of the Sheet. */
-function isLoadTest(b: Any) {
-  const want = env('SYNC_TOKEN');
-  return !!want && want.length >= 16 && String(b?.lt || '') === want;
+/** tools/loadtest.mjs sends a token as `lt`; its rows are tagged and kept out of the Sheet.
+ *  LOADTEST_TOKEN (optional) only unlocks load-test actions — never the Sheet export. */
+function isLoadTest(b: Any) { return ltTokenOk(b?.lt); }
+function ltTokenOk(t: unknown) {
+  const v = String(t || '');
+  return v.length >= 16 && [env('SYNC_TOKEN'), env('LOADTEST_TOKEN')].some((w) => w.length >= 16 && v === w);
 }
+function requireLtToken(t: unknown) { if (!ltTokenOk(t)) throw new UserError('Not allowed', 'auth'); }
 
 const truthy = (v: unknown, d = false) => {
   const s = String(v ?? '').trim().toLowerCase();
@@ -577,7 +598,7 @@ async function actAdminPull(b: Any) { // used by SheetsSync.gs → pullQuestions
 ACTIONS.admin_pull = actAdminPull;
 
 async function actAdminPurgeLoadtest(b: Any) { // used by tools/loadtest.mjs after a run
-  requireToken(b.token);
+  requireLtToken(b.token);
   const leads = await sql`delete from leads where src = 'loadtest' returning id`; // cascades to otp_codes + certificates
   const att = await sql`delete from attempts where src = 'loadtest' returning id`;
   const ids = leads.map((r: Any) => r.id);
@@ -587,7 +608,7 @@ async function actAdminPurgeLoadtest(b: Any) { // used by tools/loadtest.mjs aft
 ACTIONS.admin_purge_loadtest = actAdminPurgeLoadtest;
 
 async function actAdminLoadtestReport(b: Any) { // used by tools/loadtest.mjs to prove nothing was lost or doubled
-  requireToken(b.token);
+  requireLtToken(b.token);
   const [r] = await sql`select
       (select count(*)::int from attempts where src = 'loadtest') as attempts,
       (select count(*)::int from attempts where src = 'loadtest' and status = 'Completed') as completed,
@@ -601,6 +622,13 @@ async function actAdminLoadtestReport(b: Any) { // used by tools/loadtest.mjs to
   return r;
 }
 ACTIONS.admin_loadtest_report = actAdminLoadtestReport;
+
+async function actAdminLoadtestNote(b: Any) { // tools/loadtest.mjs saves its printed summary (private.loadtest_runs)
+  requireLtToken(b.token);
+  await sql`insert into private.loadtest_runs (pass, summary) values (${b.pass === true}, ${String(b.summary || '').slice(0, 20000)})`;
+  return { ok: true };
+}
+ACTIONS.admin_loadtest_note = actAdminLoadtestNote;
 
 // ============================================================ LEAD HELPERS
 

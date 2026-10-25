@@ -1,0 +1,6 @@
+{
+  "note": "Editing this file on main runs the load test (Actions → Load test). The token only unlocks load-test actions and is rotated after each run.",
+  "users": [20, 40],
+  "thinkMs": 400,
+  "token": "lt_5294a14aa7784f010809862ebfb877cb"
+}
