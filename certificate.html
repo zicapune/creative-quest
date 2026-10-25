@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#08070F">
+  <title>Certificate · ZICA Creative Quest</title>
+  <meta name="description" content="Verify a ZICA Creative Quest certificate.">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Montserrat:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body data-screen="verify">
+  <div class="bg" aria-hidden="true">
+    <div class="bg__glow bg__glow--violet"></div>
+    <div class="bg__glow bg__glow--blue"></div>
+    <div class="bg__glow bg__glow--ember"></div>
+    <div class="bg__floor"></div>
+    <div class="bg__vignette"></div>
+  </div>
+
+  <header class="topbar">
+    <a class="brand" id="brand" href="./"><span class="brand__text">ZICA Pune<small>Kothrud</small></span></a>
+  </header>
+
+  <main class="app">
+    <div class="verify" id="verify">
+      <div class="q-loading" id="loading"><div class="spinner"></div><p>Checking certificate…</p></div>
+      <div id="result" hidden>
+        <p id="status"></p>
+        <h1 class="h2" id="title"></h1>
+        <p class="muted" id="sub"></p>
+        <div id="certBox" class="certdone__preview" style="margin:22px 0"></div>
+        <div class="verify__facts" id="facts"></div>
+        <div class="certdone__actions" style="margin:24px 0 0;max-width:420px">
+          <a class="btn btn--ember btn--block btn--xl" id="pdf" href="#" target="_blank" rel="noopener" hidden>Download Certificate (PDF)</a>
+          <a class="btn btn--violet btn--block" href="./?src=certificate_page">Take the Creative Quest</a>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/api.js"></script>
+  <script src="assets/js/certificate.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    var q = new URLSearchParams(location.search);
+    var id = (q.get('id') || '').toUpperCase().replace(/[^A-Z0-9-]/g, '');
+    var k = (q.get('k') || '').replace(/[^A-Za-z0-9]/g, '');
+    var D = (window.CQ_CONFIG || {}).DEFAULTS || {};
+    var OK = '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+    var X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+
+    // Logo if present
+    var logo = new Image();
+    logo.className = 'brand__logo'; logo.alt = 'ZICA Pune';
+    logo.onload = function () { $('brand').innerHTML = ''; $('brand').appendChild(logo); };
+    logo.src = D.logoUrl || 'assets/img/logo.png';
+
+    function done(r) {
+      $('loading').hidden = true;
+      $('result').hidden = false;
+      if (!r || !r.valid) {
+        $('status').innerHTML = '<span class="verify__status verify__status--bad">' + X + (r && r.revoked ? 'Certificate revoked' : 'Certificate not found') + '</span>';
+        $('title').textContent = 'We couldn\'t verify this certificate';
+        $('sub').textContent = id ? 'Check the certificate ID (' + id + ') or scan the QR code on the certificate again.' : 'No certificate ID was given.';
+        return;
+      }
+      var test = r.verifiedVia === 'test';
+      $('status').innerHTML = test
+        ? '<span class="verify__status verify__status--test">' + OK + 'Issued in test mode</span>'
+        : '<span class="verify__status verify__status--ok">' + OK + 'Verified certificate</span>';
+      $('title').textContent = r.name;
+      $('sub').textContent = 'completed the ZICA Creative Quest.';
+      document.title = r.name + ' · ZICA Creative Quest certificate';
+      CQCert.render($('certBox'), r, Object.assign({}, D.cert, r.cert || {}));
+      var facts = [['Certificate ID', r.id], ['Issued on', r.issuedAt], ['Issued by', (r.cert && r.cert.instituteLine) || D.institute || 'ZICA Pune']];
+      if (r.cert && r.cert.showScore && r.score != null) facts.push(['Quest score', r.score + ' / ' + r.total]);
+      $('facts').innerHTML = facts.map(function (f) { return '<div class="fact"><span>' + esc(f[0]) + '</span><strong>' + esc(f[1]) + '</strong></div>'; }).join('');
+      if (r.pdfUrl) { $('pdf').href = r.pdfUrl; $('pdf').hidden = false; }
+    }
+
+    if (!/^ZCQ\d{2}-[A-Z0-9]{6}$/.test(id)) { done(null); return; }
+    window.CQ_API.call('cert', { id: id, k: k }).then(done).catch(function () { done(null); });
+  })();
+  </script>
+</body>
+</html>
