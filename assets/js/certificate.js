@@ -28,7 +28,8 @@ window.CQCert = (function () {
     var score = conf.showScore && data.score != null && data.total ? '<div class="cert__score" style="' + at(null, 228, 12) + '">Quest score: ' + data.score + ' / ' + data.total + '</div>' : '';
 
     el.innerHTML =
-      '<div class="cert__bg cert__bg--builtin"><i class="b1"></i><i class="b2"></i><i class="b3"></i><i class="b4"></i><i class="frame1"></i><i class="frame2"></i><i class="ring1"></i><i class="ring2"></i></div>' +
+      '<div class="cert__bg cert__bg--builtin"><i class="b1"></i><i class="b4"></i><i class="frame1"></i><i class="frame2"></i><i class="ring1"></i><i class="ring2"></i>' +
+        [0, 3, 7, 12].map(function (k) { return '<i class="kf" style="left:calc(var(--u) * ' + (220 + k * (402 / 12) - 3).toFixed(1) + ')"></i>'; }).join('') + '</div>' +
       (conf.bgUrl ? '<img class="cert__bgimg" alt="" src="' + esc(conf.bgUrl) + '">' : '') +
       '<div class="cert__logo">' +
         (conf.logoUrl ? '<img alt="ZICA" src="' + esc(conf.logoUrl) + '">' : '') +

@@ -1,0 +1,182 @@
+# =====================================================================
+# ZICA Creative Quest — one-click deploy
+# ---------------------------------------------------------------------
+# Runs on every push to main, or by hand: Actions → "Deploy Creative Quest" → Run workflow.
+#
+#   1. backend   Supabase: database schema + 50 questions, the "quest" function, secrets
+#                (skipped — site stays in DEMO mode — until the Supabase secrets exist)
+#   2. site      Publishes the website to GitHub Pages with the live keys filled in
+#   3. loadtest  20 students at once, full flow, then proves nothing was lost or doubled
+#                (manual runs only; tick the box)
+#
+# Repository secrets (Settings → Secrets and variables → Actions → Secrets):
+#   SUPABASE_ACCESS_TOKEN   supabase.com → Account → Access Tokens → Generate
+#   SYNC_TOKEN              any long password (32+ chars). Same value goes in SheetsSync.gs
+#   BREVO_API_KEY           (optional until ready) Brevo → SMTP & API → API keys
+# Repository VARIABLES (same page → Variables tab):
+#   SUPABASE_PROJECT_REF    the 20-letter id in your project URL (https://<ref>.supabase.co)
+#                           — a variable, not a secret: it's public anyway and must reach the site build
+#   EMAIL_FROM              (optional) sender address verified in Brevo
+#   SITE_URL                (optional) only for a custom domain, e.g. https://quest.zicapune.com
+# =====================================================================
+name: Deploy Creative Quest
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      loadtest:
+        description: 'Run the 20-student load test after deploying'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: deploy-creative-quest
+  cancel-in-progress: false
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    outputs:
+      live: ${{ steps.chk.outputs.live }}
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REF: ${{ vars.SUPABASE_PROJECT_REF || secrets.SUPABASE_PROJECT_REF }}
+      SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+      BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+      EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+      SITE_URL_VAR: ${{ vars.SITE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Supabase secrets
+        id: chk
+        run: |
+          if [ -n "$SUPABASE_ACCESS_TOKEN" ] && [ -n "$REF" ] && [ -n "$SYNC_TOKEN" ]; then
+            if [ ${#SYNC_TOKEN} -lt 16 ]; then echo "::error::SYNC_TOKEN must be at least 16 characters"; exit 1; fi
+            echo "live=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "live=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Supabase secrets not set yet — publishing the site in DEMO mode."
+          fi
+
+      - uses: supabase/setup-cli@v1
+        if: steps.chk.outputs.live == 'true'
+        with:
+          version: latest
+
+      - name: Database — tables, security, 50 questions
+        if: steps.chk.outputs.live == 'true'
+        run: |
+          sql() {
+            jq -Rs '{query: .}' | curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$REF/database/query" \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data-binary @- > /tmp/sql.out \
+              || { echo "::error::SQL failed"; cat /tmp/sql.out; exit 1; }
+          }
+          sql < supabase/schema.sql
+          OWNER=$(echo "${GITHUB_REPOSITORY%%/*}" | tr '[:upper:]' '[:lower:]')
+          SITE="${SITE_URL_VAR:-https://$OWNER.github.io/${GITHUB_REPOSITORY#*/}}"
+          SITE="${SITE%/}"
+          printf "update settings set value = '%s' where key = 'site_url';" "$SITE" | sql
+          if [ -n "$EMAIL_FROM" ]; then printf "update settings set value = '%s' where key = 'email_from_address';" "$EMAIL_FROM" | sql; fi
+          echo "Database ready · site_url = $SITE"
+
+      - name: Function secrets
+        if: steps.chk.outputs.live == 'true'
+        run: |
+          supabase secrets list --project-ref "$REF" -o json > /tmp/secrets.json || echo '[]' > /tmp/secrets.json
+          ARGS="SYNC_TOKEN=$SYNC_TOKEN"
+          if ! jq -e '.[] | select(.name=="OTP_PEPPER")' /tmp/secrets.json > /dev/null; then
+            ARGS="$ARGS OTP_PEPPER=$(openssl rand -hex 32)"
+          fi
+          if [ -n "$BREVO_API_KEY" ]; then
+            ARGS="$ARGS BREVO_API_KEY=$BREVO_API_KEY ALLOW_TEST_OTP=false"
+          else
+            # No email provider yet: show the code on screen so the certificate flow still works.
+            ARGS="$ARGS ALLOW_TEST_OTP=true"
+            echo "::warning::BREVO_API_KEY not set — verification codes are shown on screen (test mode)."
+          fi
+          supabase secrets set --project-ref "$REF" $ARGS > /dev/null
+          echo "Secrets set."
+
+      - name: Deploy the "quest" function
+        if: steps.chk.outputs.live == 'true'
+        run: supabase functions deploy quest --project-ref "$REF" --no-verify-jwt --use-api
+
+      - name: Smoke test
+        if: steps.chk.outputs.live == 'true'
+        run: |
+          for i in 1 2 3 4 5 6; do
+            OUT=$(curl -sS -X POST "https://$REF.supabase.co/functions/v1/quest" -H "Content-Type: application/json" -d '{"action":"boot"}' || true)
+            echo "$OUT" | jq -e '.totalQuestions' > /dev/null && { echo "Function is live: $(echo "$OUT" | jq -c '{title, totalQuestions, otpChannel}')"; exit 0; }
+            sleep 10
+          done
+          echo "::error::Function did not answer. Last reply: $OUT"; exit 1
+
+  site:
+    needs: backend
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the site
+        env:
+          LIVE: ${{ needs.backend.outputs.live }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          REF: ${{ vars.SUPABASE_PROJECT_REF || secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          SB_URL=""; SB_ANON=""
+          if [ "$LIVE" = "true" ]; then
+            curl -sS --fail -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/projects/$REF/api-keys" > /tmp/keys.json
+            SB_ANON=$(jq -r '[.[] | select(.name=="anon" or .type=="publishable") | .api_key] | first // empty' /tmp/keys.json)
+            [ -n "$SB_ANON" ] || { echo "::error::Could not read the anon/publishable key"; exit 1; }
+            SB_URL="https://$REF.supabase.co"
+          fi
+          mkdir -p _site
+          cp -r index.html certificate.html assets _site/
+          touch _site/.nojekyll
+          [ -f CNAME ] && cp CNAME _site/ || true
+          if [ "$LIVE" = "true" ] && [ -n "$SB_URL" ] && [ -n "$SB_ANON" ]; then
+            sed -i "s#SUPABASE_URL: ''#SUPABASE_URL: '$SB_URL'#; s#SUPABASE_ANON_KEY: ''#SUPABASE_ANON_KEY: '$SB_ANON'#" _site/assets/js/config.js
+            grep -q "$SB_URL" _site/assets/js/config.js || { echo "::error::config.js was not filled"; exit 1; }
+            rm -f _site/assets/js/demo.js _site/assets/js/demo-questions.js   # answer key never goes live
+            echo "LIVE build → $SB_URL"
+          else
+            echo "DEMO build (Supabase not connected yet)"
+          fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  loadtest:
+    needs: [backend, site]
+    if: needs.backend.outputs.live == 'true' && github.event_name == 'workflow_dispatch' && inputs.loadtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: 20 students at the same time
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          REF: ${{ vars.SUPABASE_PROJECT_REF || secrets.SUPABASE_PROJECT_REF }}
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          THINK_MS: '400'
+        run: |
+          export FUNCTION_URL="https://$REF.supabase.co/functions/v1/quest"
+          export ANON_KEY=$(curl -sS --fail -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/projects/$REF/api-keys" | jq -r '[.[] | select(.name=="anon" or .type=="publishable") | .api_key] | first // empty')
+          set -o pipefail
+          node tools/loadtest.mjs 20 | tee loadtest.txt
+          { echo '## Load test — 20 simultaneous students'; echo '```'; cat loadtest.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

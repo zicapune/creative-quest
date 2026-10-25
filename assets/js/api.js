@@ -11,17 +11,18 @@
   var mode = url ? 'live' : 'demo';
 
   var demoReady = null;
+  function loadScript(name) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      var me = document.querySelector('script[src*="assets/js/api.js"]');
+      s.src = (me ? me.src.replace(/api\.js(\?.*)?$/, '') : 'assets/js/') + name;
+      s.onload = resolve;
+      s.onerror = function () { reject(new Error('Preview files missing (' + name + ').')); };
+      document.head.appendChild(s);
+    });
+  }
   function loadDemo() {
-    if (!demoReady) {
-      demoReady = new Promise(function (resolve, reject) {
-        var s = document.createElement('script');
-        var me = document.querySelector('script[src*="assets/js/api.js"]');
-        s.src = (me ? me.src.replace(/api\.js(\?.*)?$/, '') : 'assets/js/') + 'demo.js';
-        s.onload = function () { resolve(window.CQ_DEMO); };
-        s.onerror = function () { reject(new Error('Demo backend missing (assets/js/demo.js).')); };
-        document.head.appendChild(s);
-      });
-    }
+    if (!demoReady) demoReady = loadScript('demo-questions.js').then(function () { return loadScript('demo.js'); }).then(function () { return window.CQ_DEMO; });
     return demoReady;
   }
 

@@ -30,6 +30,7 @@ window.CQ_CONFIG = {
     bgImageUrl: '',
     courses: ['Animation (2D & 3D)', 'VFX & Compositing', 'Game Art & Design', 'Graphic Design', 'Filmmaking & Video Editing', 'Not sure yet'],
     countryCode: '91',
+    totalQuestions: 25,
     requireName: true,
     marketingPreticked: true,   // updates checkbox starts ticked (they can untick)
     rewardText: 'Free introductory lessons in animation, VFX, gaming & design',

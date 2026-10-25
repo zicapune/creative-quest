@@ -1,0 +1,106 @@
+<!--
+  ZICA CREATIVE QUEST — website promo card
+  ------------------------------------------------------------------
+  Paste this whole block just before </body> on the ZICA Pune website
+  (WordPress: Appearance → Theme File Editor → footer.php, or a "Custom HTML /
+  Insert Headers and Footers" plugin → Footer).
+
+  QUIZ_URL below is already set to https://zicapune.github.io/creative-quest/ (change it only if the address changes).
+
+  Behaviour (non-intrusive by design):
+    • Appears as a small card in the bottom corner — never a full-screen overlay.
+    • Shows after 8 seconds OR once the visitor scrolls 35% of the page, whichever is first.
+    • "Not now" hides it for 3 days on that browser. Taking the quiz hides it for 30 days.
+    • Opens the quiz in a new tab, tagged ?src=website_popup so leads show their source.
+    • Loads nothing external, so it can't slow down or block the website.
+
+  Want a permanent button elsewhere on the site too (menu, banner, course page)?
+  Any link to QUIZ_URL works, e.g.
+    <a href="YOUR_URL?src=website_button" target="_blank" rel="noopener">Take the Creative Quest</a>
+-->
+<div id="zcq-card" class="zcq" role="dialog" aria-labelledby="zcq-title" aria-describedby="zcq-text" hidden>
+  <button type="button" class="zcq__x" id="zcq-close" aria-label="Close">&times;</button>
+  <div class="zcq__glow" aria-hidden="true"></div>
+  <div class="zcq__icon" aria-hidden="true">
+    <svg viewBox="0 0 24 24"><path d="M12 2l1.8 5.2L19 9l-5.2 1.8L12 16l-1.8-5.2L5 9l5.2-1.8z"/><path d="M18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>
+  </div>
+  <p class="zcq__title" id="zcq-title">Discover Your Creative Potential</p>
+  <p class="zcq__text" id="zcq-text">Take the ZICA Creative Quest, unlock free creative lessons and earn your certificate.</p>
+  <a class="zcq__cta" id="zcq-go" href="#" target="_blank" rel="noopener">Start Your Free Quiz</a>
+  <button type="button" class="zcq__later" id="zcq-later">Not now</button>
+</div>
+
+<style>
+  .zcq{position:fixed;z-index:2147483000;right:20px;bottom:20px;width:min(340px,calc(100vw - 32px));padding:22px 20px 16px;
+    border-radius:20px;background:#15171f;border:1px solid #2b2f42;
+    color:#eceef4;font:400 15px/1.5 'Bricolage Grotesque',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;text-align:left;
+    box-shadow:0 24px 60px -18px rgba(0,0,0,.65);overflow:hidden;
+    opacity:0;transform:translateY(16px);transition:opacity .4s cubic-bezier(.2,.8,.2,1),transform .4s cubic-bezier(.2,.8,.2,1)}
+  .zcq.zcq--on{opacity:1;transform:none}
+  .zcq[hidden]{display:none}
+  .zcq__glow{position:absolute;right:-60px;top:-60px;width:180px;height:180px;border-radius:50%;pointer-events:none;
+    background:radial-gradient(circle,rgba(255,122,26,.35),transparent 65%)}
+  .zcq__icon{position:relative;width:44px;height:44px;border-radius:13px;display:grid;place-items:center;margin-bottom:12px;
+    background:#ffb547;box-shadow:0 8px 22px -6px rgba(255,181,71,.7)}
+  .zcq__icon svg{width:24px;height:24px;fill:none;stroke:#0d0e13;stroke-width:1.7;stroke-linejoin:round}
+  .zcq__title{position:relative;margin:0 0 6px;font:800 20px/1.15 'Bricolage Grotesque',system-ui,sans-serif;color:#fff;letter-spacing:-.02em}
+  .zcq__text{position:relative;margin:0 0 16px;color:#a9aec2;font-size:14.5px}
+  .zcq__cta{position:relative;display:flex;align-items:center;justify-content:center;min-height:50px;border-radius:14px;text-decoration:none;
+    background:#ffb547;color:#0d0e13!important;font:700 16px/1 'Bricolage Grotesque',system-ui,sans-serif;
+    box-shadow:0 10px 26px -8px rgba(255,181,71,.7)}
+  .zcq__cta:hover{filter:brightness(1.05)}
+  .zcq__later{position:relative;display:block;margin:8px auto 0;padding:8px 12px;background:none;border:0;color:#8d93a8;font:500 13.5px/1 inherit;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+  .zcq__x{position:absolute;z-index:1;right:10px;top:8px;width:34px;height:34px;border:0;border-radius:10px;background:rgba(255,255,255,.06);
+    color:#C9C6DD;font-size:22px;line-height:1;cursor:pointer}
+  .zcq__x:hover{background:rgba(255,255,255,.12)}
+  .zcq a:focus-visible,.zcq button:focus-visible{outline:2px solid #5ce1e6;outline-offset:3px}
+  @media (max-width:520px){.zcq{right:16px;left:16px;bottom:16px;width:auto}}
+  @media (prefers-reduced-motion:reduce){.zcq{transition:none}}
+</style>
+
+<script>
+(function () {
+  /* ====== EDIT THIS LINE ====== */
+  var QUIZ_URL = 'https://zicapune.github.io/creative-quest/';
+  var CAMPAIGN = 'creative_quest_2026';
+  /* ============================ */
+
+  var DELAY_MS = 8000, SCROLL_SHARE = 0.35;
+  var KEY = 'zcq_hide_until';
+  var card = document.getElementById('zcq-card');
+  if (!card || !/^https:\/\//.test(QUIZ_URL)) return;
+
+  function hiddenUntil() { try { return Number(localStorage.getItem(KEY)) || 0; } catch (e) { return 0; } }
+  function hideFor(days) { try { localStorage.setItem(KEY, String(Date.now() + days * 864e5)); } catch (e) {} }
+  if (Date.now() < hiddenUntil()) return;
+
+  var go = document.getElementById('zcq-go');
+  go.href = QUIZ_URL + (QUIZ_URL.indexOf('?') < 0 ? '?' : '&') + 'src=website_popup&utm_campaign=' + encodeURIComponent(CAMPAIGN);
+
+  var shown = false, timer;
+  function show() {
+    if (shown) return;
+    shown = true;
+    clearTimeout(timer);
+    window.removeEventListener('scroll', onScroll);
+    card.hidden = false;
+    requestAnimationFrame(function () { requestAnimationFrame(function () { card.classList.add('zcq--on'); }); });
+  }
+  function close(days) {
+    hideFor(days);
+    card.classList.remove('zcq--on');
+    setTimeout(function () { card.hidden = true; }, 400);
+  }
+  function onScroll() {
+    var h = document.documentElement.scrollHeight - window.innerHeight;
+    if (h > 0 && window.scrollY / h >= SCROLL_SHARE) show();
+  }
+
+  timer = setTimeout(show, DELAY_MS);
+  window.addEventListener('scroll', onScroll, { passive: true });
+  document.getElementById('zcq-close').addEventListener('click', function () { close(3); });
+  document.getElementById('zcq-later').addEventListener('click', function () { close(3); });
+  go.addEventListener('click', function () { close(30); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && shown && !card.hidden) close(3); });
+})();
+</script>

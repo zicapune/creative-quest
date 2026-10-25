@@ -1,5 +1,5 @@
 /* =====================================================================
-   ZICA CREATIVE QUEST — app.js
+   ZICA CREATIVE QUEST — app.js  (v3 · viewport theme)
    welcome → name → quiz (+feedback) → result → contact → done
            → confirm details (edit ✏️) → verification code → certificate
    Answers, scores, codes and certificates are all decided on the server.
@@ -14,6 +14,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  var torusA = null, torusB = null;
   var S = {
     name: '', attemptId: '', attemptNo: 0, questions: [], idx: 0, selected: -1,
     locked: false, busy: false, answered: 0, result: null, startPromise: null,
@@ -71,10 +72,14 @@
     document.body.setAttribute('data-screen', name);
     current = name;
     $('toast').classList.remove('is-on');
+    $('hudRight').textContent = HUD[name] || '';
+    if (name === 'welcome' && torusA) torusA.start();
     window.scrollTo(0, 0);
     var f = focusId ? $(focusId) : next.querySelector('h2[tabindex="-1"], h1');
     if (f) setTimeout(function () { try { f.focus({ preventScroll: true }); } catch (e) { f.focus(); } }, 60);
   }
+  var HUD = { welcome: 'viewport · persp', name: 'scene setup', quiz: 'timeline', result: 'render complete', contact: 'export settings',
+    done: 'output', confirm: 'final check', otp: 'verify', certificate: 'export · pdf', error: 'render failed' };
   function showFatal(msg) { $('errText').textContent = msg; show('error', 'errTitle'); }
 
   /* --------------------------- branding --------------------------- */
@@ -90,12 +95,10 @@
 
   function applyBranding() {
     var brand = $('brand');
-    var parts = String(C.institute || 'ZICA Pune · Kothrud').split('·');
-    brand.innerHTML = '<span class="brand__text">' + esc(parts[0].trim()) +
-      (parts[1] ? '<small>' + esc(parts.slice(1).join('·').trim()) + '</small>' : '') + '</span>';
-    if (C.logoUrl) {
+    if (C.logoUrl && !brand.querySelector('.brand__logo')) {
       var l = img(C.logoUrl, C.institute || 'ZICA Pune', 'brand__logo');
-      l.onload = function () { var t = brand.querySelector('.brand__text'); if (t) t.remove(); };
+      l.style.display = 'none';
+      l.onload = function () { var t = brand.querySelector('.brand__word'); if (t) t.remove(); l.style.display = ''; };
       brand.insertBefore(l, brand.firstChild);
     }
     if (C.bgImageUrl) {
@@ -121,12 +124,6 @@
       slot.appendChild(a);
     });
 
-    var tr = $('trophy');
-    if (!tr.querySelector('svg, img.trophy__img')) {
-      if (C.trophyUrl) tr.insertBefore(img(C.trophyUrl, '', 'trophy__img', function () { tr.insertAdjacentHTML('afterbegin', CQVisuals.trophy()); }), tr.firstChild);
-      else tr.insertAdjacentHTML('afterbegin', CQVisuals.trophy());
-    }
-
     var sel = $('fCourse');
     if (sel.options.length <= 1 && C.courses && C.courses.length) {
       C.courses.forEach(function (c) { var o = document.createElement('option'); o.value = c; o.textContent = c; sel.appendChild(o); });
@@ -142,6 +139,7 @@
     $('contactLine').textContent = C.contactLine || '';
     var certOn = !C.cert || C.cert.enabled !== false;
     $('btnUnlock').textContent = certOn ? 'Get My Free Lessons & Certificate' : 'Get My Free Lessons';
+    if (C.totalQuestions) $('welcomeMeta').textContent = C.totalQuestions + ' questions · ~' + Math.max(3, Math.round(C.totalQuestions / 4)) + ' min · certificate';
     if (API.mode === 'demo') $('modeBadge').innerHTML = '<span class="demo-badge" title="Nothing is saved. Connect Supabase in assets/js/config.js to go live.">Demo mode</span>';
   }
 
@@ -154,11 +152,14 @@
 
   /* ============================ 1. WELCOME ============================ */
   function startAttempt() {
-    S.attemptNo += 1;
+    // Attempts are counted per device, so "Try again" (and a reload) gives the other question set.
+    S.attemptNo = (Number(recall('attempts')) || 0) + 1;
+    store('attempts', S.attemptNo);
     S.startPromise = API.call('start', { src: BOOT.src, campaign: BOOT.campaign, device: device(), attemptNo: S.attemptNo })
       .then(function (res) {
         S.attemptId = res.attemptId;
         S.questions = res.questions || [];
+        S.set = res.set || '';
         CQVisuals.preload(S.questions.map(function (q) { return q.asset; }));
         return res;
       });
@@ -194,10 +195,10 @@
     show('quiz', 'qCount');
     $('qLoading').hidden = false;
     $('qLayout').hidden = true;
-    $('qCount').textContent = 'Getting ready…';
+    setCount(0, 25);
     $('qCategory').textContent = '';
     $('qCheer').innerHTML = greetingLine();
-    buildStrip(15);
+    buildStrip(25);
     (S.startPromise || startAttempt()).then(function () {
       if (!S.questions.length) throw new Error('No questions are active right now.');
       buildStrip(S.questions.length);
@@ -216,21 +217,33 @@
     return CHEERS[i % CHEERS.length];
   }
 
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  function setCount(i, total) {
+    $('qCount').innerHTML = '<span class="q-count__n">' + pad2(i + 1) + '</span><span class="q-count__of">/ ' + total + '</span>';
+    $('qCount').setAttribute('aria-label', 'Question ' + (i + 1) + ' of ' + total);
+  }
+  var results = [];
   function buildStrip(n) {
     var html = '';
-    for (var i = 0; i < n; i++) html += '<span class="strip__frame"></span>';
-    $('strip').innerHTML = html;
-    $('strip').setAttribute('aria-valuemax', String(n));
+    for (var i = 0; i < n; i++) html += '<i class="tl__key" style="left:' + (n > 1 ? (i / (n - 1) * 100) : 0).toFixed(3) + '%"></i>';
+    $('tlKeys').innerHTML = html;
+    $('tl').setAttribute('aria-valuemax', String(n));
+    results = [];
     updateStrip();
   }
   function updateStrip() {
-    var frames = $('strip').children;
-    for (var i = 0; i < frames.length; i++) {
-      frames[i].classList.toggle('is-done', i < S.answered);
-      frames[i].classList.toggle('is-current', i === S.idx && i >= S.answered);
+    var keys = $('tlKeys').children, n = keys.length;
+    for (var i = 0; i < n; i++) {
+      keys[i].classList.toggle('is-done', i < S.answered && results[i] !== true);
+      keys[i].classList.toggle('is-right', i < S.answered && results[i] === true);
+      keys[i].classList.toggle('is-now', i === S.idx && i >= S.answered);
     }
-    $('strip').setAttribute('aria-valuenow', String(S.answered));
-    $('strip').setAttribute('aria-valuetext', S.answered + ' of ' + frames.length + ' answered');
+    var pos = n > 1 ? (Math.min(S.idx, n - 1) / (n - 1) * 100) : 0;
+    $('tlHead').style.left = pos + '%';
+    $('tlHead').setAttribute('data-f', 'f' + pad2(Math.min(S.idx + 1, n)));
+    $('tlFill').style.width = (n > 1 ? (Math.max(0, S.answered - 1) / (n - 1) * 100) : 0) + '%';
+    $('tl').setAttribute('aria-valuenow', String(S.answered));
+    $('tl').setAttribute('aria-valuetext', S.answered + ' of ' + n + ' answered');
   }
 
   function renderQuestion() {
@@ -238,14 +251,15 @@
     S.selected = -1; S.locked = false;
     $('qLoading').hidden = true;
     $('qLayout').hidden = false;
-    $('qCount').textContent = 'Question ' + (S.idx + 1) + ' of ' + total;
+    setCount(S.idx, total);
     $('qCategory').textContent = q.category || '';
     $('qCheer').innerHTML = cheerFor(S.idx, total);
     $('qNudge').textContent = '';
 
     var vis = CQVisuals.render(q.asset, q.assetAlt);
-    var hint = q.type === 'animation' ? 'Watch closely' : (q.type === 'puzzle' ? 'Creative puzzle' : (vis ? 'Look closely' : ''));
-    $('qVisual').innerHTML = vis ? vis + (hint ? '<figcaption class="q-visual__hint">' + hint + '</figcaption>' : '') : '';
+    var hint = q.type === 'animation' ? '▶ watch closely' : (q.type === 'puzzle' ? '◆ creative puzzle' : (vis ? 'cam_01 · look closely' : ''));
+    $('qVisual').innerHTML = vis;
+    $('qHint').textContent = hint;
     $('qLayout').classList.toggle('no-visual', !vis);
 
     $('qText').textContent = q.text;
@@ -304,6 +318,7 @@
       S.busy = false; busy(btn, false);
       S.locked = true;
       S.answered = Math.max(S.answered, S.idx + 1);
+      results[S.idx] = !!res.correct;
       markAnswer(res);
       updateStrip();
       openSheet(res);
@@ -338,6 +353,7 @@
     $('fbIcon').innerHTML = right ? ICON_RIGHT : ICON_LEARN;
     var pool = right ? RIGHT : LEARN;
     $('fbTitle').textContent = pool[S.idx % pool.length];
+    $('fbTag').textContent = right ? 'keyframe ' + pad2(S.idx + 1) + ' · set' : 'keyframe ' + pad2(S.idx + 1) + ' · learned';
     $('fbAnswer').textContent = right ? '' : 'The answer is: ' + res.correctText;
     $('fbText').textContent = res.explanation || '';
     $('btnNext').textContent = S.idx >= S.questions.length - 1 ? 'See My Score' : 'Next Question';
@@ -415,21 +431,36 @@
   function showResult() {
     var r = S.result;
     $('resTitle').textContent = firstName() ? 'Great job, ' + firstName() + '!' : 'Great job!';
+    $('resKicker').textContent = 'quest complete · ' + r.total + ' keyframes';
     $('scoreTotal').textContent = r.total;
     $('scoreNum').textContent = '0';
     $('scoreCorrect').textContent = r.score + ' correct ' + (r.score === 1 ? 'answer' : 'answers') + ' out of ' + r.total;
     $('resMsg').textContent = scoreMessage(r.score, r.total);
+    $('btnRetry').textContent = 'Try Again — ' + r.total + ' New Questions';
+    $('btnPlayAgain').textContent = 'Play Again — ' + r.total + ' New Questions';
     $('recap').innerHTML = (r.recap || []).map(function (it) {
       return '<li><span class="recap__dot' + (it.correct ? ' is-ok' : '') + '" aria-hidden="true"></span>' + esc(it.topic) +
         '<span class="sr-only">' + (it.correct ? ' (answered correctly)' : ' (learned)') + '</span></li>';
     }).join('');
-    $('scoreBar').style.strokeDashoffset = '326.73';
+    $('keystrip').innerHTML = (r.recap || []).map(function (it, i) { return '<i class="' + (it.correct ? 'is-right' : '') + '" style="--i:' + i + '"></i>'; }).join('');
+    $('renderLabel2').innerHTML = 'final render · <b>0%</b>';
+    if (!torusB && window.CQTorus) torusB = CQTorus($('torus2'), { mix: 0 });
+    if (torusB) { torusB.set(0); torusB.start(); }
     show('result', 'resTitle');
     setTimeout(function () {
-      $('scoreBar').style.strokeDashoffset = String(326.73 * (1 - (r.total ? r.score / r.total : 0)));
       countUp($('scoreNum'), r.score, 1100);
+      if (torusB) torusB.set(1);
+      renderPercent(1600);
       confetti();
     }, 250);
+  }
+  function renderPercent(ms) {
+    var t0 = performance.now(), el = $('renderLabel2');
+    (function tick(t) {
+      var k = Math.min(1, (t - t0) / ms);
+      el.innerHTML = 'final render · <b>' + Math.round(100 * (1 - Math.pow(1 - k, 2))) + '%</b>';
+      if (k < 1) requestAnimationFrame(tick);
+    })(t0);
   }
   function countUp(el, to, ms) {
     if (reduceMotion || to === 0) { el.textContent = String(to); return; }
@@ -442,8 +473,11 @@
   }
   function confetti(box) {
     if (reduceMotion) return;
-    box = box || $('confetti');
-    var cols = ['#F2C14E', '#FFE29A', '#7B5CFF', '#A895FF', '#FF8A3D', '#3DDC97', '#3D7BFF'], html = '';
+    if (!box) {
+      box = document.querySelector('.result__copy .confetti');
+      if (!box) { box = document.createElement('div'); box.className = 'confetti'; document.querySelector('.result__copy').appendChild(box); }
+    }
+    var cols = ['#ffb547', '#ff7a1a', '#5ce1e6', '#eceef4', '#ffb547', '#ff7a1a'], html = '';
     for (var i = 0; i < 34; i++) {
       var a = (Math.PI * 2 * i) / 34 + Math.random() * .3, d = 70 + Math.random() * 90;
       html += '<i style="--x:' + Math.round(Math.cos(a) * d) + 'px;--y:' + Math.round(Math.sin(a) * d - 30) + 'px;--r:' +
@@ -836,6 +870,9 @@
   });
 
   /* =============================== init =============================== */
+  if (window.CQTorus) { torusA = CQTorus($('torus'), { mix: 0 }); torusA.start(); }
+  $('btnStart').addEventListener('pointerenter', function () { if (torusA) { torusA.set(0.35); $('renderLabel').innerHTML = 'viewport · <b>rendering…</b>'; } });
+  $('btnStart').addEventListener('pointerleave', function () { if (torusA) { torusA.set(0); $('renderLabel').innerHTML = 'viewport · <b>wireframe</b>'; } });
   try { applyBranding(); } catch (e) { if (window.console) console.error(e); }
   S.lead = recall('lead');
   S.contact = recall('contact');

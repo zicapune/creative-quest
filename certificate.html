@@ -3,27 +3,26 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#08070F">
+  <meta name="theme-color" content="#0d0e13">
   <title>Certificate · ZICA Creative Quest</title>
   <meta name="description" content="Verify a ZICA Creative Quest certificate.">
   <meta name="robots" content="noindex">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Montserrat:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/fonts.css">
   <link rel="stylesheet" href="assets/css/app.css">
 </head>
 <body data-screen="verify">
   <div class="bg" aria-hidden="true">
-    <div class="bg__glow bg__glow--violet"></div>
-    <div class="bg__glow bg__glow--blue"></div>
-    <div class="bg__glow bg__glow--ember"></div>
+    <div class="bg__glow bg__glow--amber"></div>
+    <div class="bg__glow bg__glow--cyan"></div>
     <div class="bg__floor"></div>
+    <div class="bg__grain"></div>
     <div class="bg__vignette"></div>
   </div>
 
   <header class="topbar">
-    <a class="brand" id="brand" href="./"><span class="brand__text">ZICA Pune<small>Kothrud</small></span></a>
+    <a class="brand" id="brand" href="./"><span class="brand__word">ZICA <span>Pune</span></span></a>
+    <div class="topbar__right"><span class="hud">certificate · verify</span></div>
   </header>
 
   <main class="app">
@@ -36,8 +35,8 @@
         <div id="certBox" class="certdone__preview" style="margin:22px 0"></div>
         <div class="verify__facts" id="facts"></div>
         <div class="certdone__actions" style="margin:24px 0 0;max-width:420px">
-          <a class="btn btn--ember btn--block btn--xl" id="pdf" href="#" target="_blank" rel="noopener" hidden>Download Certificate (PDF)</a>
-          <a class="btn btn--violet btn--block" href="./?src=certificate_page">Take the Creative Quest</a>
+          <a class="btn btn--key btn--block btn--xl" id="pdf" href="#" target="_blank" rel="noopener" hidden>Download Certificate (PDF)</a>
+          <a class="btn btn--ghost btn--block" href="./?src=certificate_page">Take the Creative Quest</a>
         </div>
       </div>
     </div>
@@ -61,7 +60,7 @@
     // Logo if present
     var logo = new Image();
     logo.className = 'brand__logo'; logo.alt = 'ZICA Pune';
-    logo.onload = function () { $('brand').innerHTML = ''; $('brand').appendChild(logo); };
+    logo.onload = function () { var w = $('brand').querySelector('.brand__word'); if (w) w.remove(); $('brand').appendChild(logo); };
     logo.src = D.logoUrl || 'assets/img/logo.png';
 
     function done(r) {
