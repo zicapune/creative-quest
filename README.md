@@ -78,6 +78,16 @@ Without Brevo the certificate step still works: the 6-digit code is shown on scr
 
 It then checks the database. A run passes only if every attempt is complete, every score matches, there is exactly one lead and one certificate per student, and there are no duplicate phone numbers. Load-test rows are tagged and deleted, and they never reach the Sheet.
 
+**Live result, 25 Oct 2026, against the real Supabase project:**
+- 20 students at once: PASS. 25 attempts, 20 leads, 20 certificates, 0 duplicates.
+- 40 students at once: PASS. 50 attempts, 40 leads, 40 certificates, 0 duplicates, 0 server errors.
+- Typical tap-to-answer time from a GitHub server in the US: 0.4–0.6 s. It is faster from Pune.
+
+Why it holds up:
+- The function runs in Mumbai next to the database (`forceFunctionRegion`).
+- It connects through the transaction pooler with one connection per instance.
+- PDF libraries load only when a certificate is downloaded.
+
 ## WhatsApp / SMS (dormant)
 
 `sendWhatsApp()` in `supabase/functions/quest/index.ts` supports `brevo` and a generic `webhook` (AiSensy, Interakt, Gupshup, WATI, or Make/n8n). It stays off while the setting `wa_provider = none`. To switch it on:
