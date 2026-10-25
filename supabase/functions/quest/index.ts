@@ -33,9 +33,7 @@
 // =====================================================================
 
 import postgres from 'npm:postgres@3.4.5';
-import { PDFDocument, rgb, degrees, StandardFonts, type PDFFont, type PDFImage, type RGB } from 'npm:pdf-lib@1.17.1';
-import fontkit from 'npm:@pdf-lib/fontkit@1.1.1';
-import qrcode from 'npm:qrcode-generator@1.4.4';
+import type { PDFDocument, PDFFont, PDFImage, RGB } from 'npm:pdf-lib@1.17.1';
 import { parsePhoneNumberFromString } from 'npm:libphonenumber-js@1.11.18/max';
 
 // deno-lint-ignore no-explicit-any
@@ -77,16 +75,32 @@ class UserError extends Error {
   constructor(message: string, code = 'user', fields?: Record<string, string>) { super(message); this.code = code; this.fields = fields; }
 }
 
-async function loadSecrets() {
-  if (Date.now() - secretsAt < 60_000) return;
+/** One database round trip fills every cache a cold instance needs (secrets, settings, questions). */
+async function warm() {
+  const now = Date.now();
+  const needS = now - secretsAt >= 60_000;
+  const needB = !bankCache || now - bankCache.at >= TTL;
+  const needC = needB || !cfgCache || now - cfgCache.at >= TTL;
+  if (!needS && !needC) return;
   try {
-    const rows = await sql`select key, value from private.app_secrets`;
-    for (const k of Object.keys(SECRETS)) delete SECRETS[k];
-    for (const r of rows) SECRETS[r.key] = String(r.value ?? '');
-    secretsAt = Date.now();
+    const rows = await sql`
+      select 's' as t, key, value, null::jsonb as q from private.app_secrets where ${needS}
+      union all select 'c', key, value, null from public.settings where ${needC}
+      union all select 'q', id, null, to_jsonb(x) from public.questions x where active and ${needB}`;
+    if (needS) {
+      for (const k of Object.keys(SECRETS)) delete SECRETS[k];
+      for (const r of rows) if (r.t === 's') SECRETS[r.key] = String(r.value ?? '');
+      secretsAt = now;
+    }
+    if (needC) {
+      const c: Record<string, string> = {};
+      for (const r of rows) if (r.t === 'c') c[r.key] = String(r.value ?? '').trim();
+      cfgCache = { at: now, cfg: c };
+    }
+    if (needB) bankCache = buildBank(cfgCache!.cfg, rows.filter((r: Any) => r.t === 'q').map((r: Any) => r.q));
   } catch (e) {
-    console.error('loadSecrets', e);
-    secretsAt = Date.now() - 50_000; // retry in ~10 s
+    console.error('warm', e);
+    if (needS) secretsAt = now - 50_000; // retry secrets in ~10 s; cfg()/bank() query on their own
   }
 }
 
@@ -99,7 +113,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   const url = new URL(req.url);
   try {
-    await loadSecrets();
+    await warm();
     if (req.method === 'GET') {
       const a = url.searchParams.get('action');
       if (a === 'pdf') return await downloadPdf(url.searchParams);
@@ -145,8 +159,14 @@ async function cfg(): Promise<Record<string, string>> {
 async function bank() {
   if (bankCache && Date.now() - bankCache.at < TTL) return bankCache;
   const c = await cfg();
+  const rows = await sql`select * from questions where active`;
+  bankCache = buildBank(c, rows);
+  return bankCache;
+}
+
+function buildBank(c: Record<string, string>, input: Any[]) {
   const limit = clampInt(c.total_questions, 1, 60, 25);
-  const rows = await sql`select * from questions where active order by set_name, sort, id`;
+  const rows = [...input].sort((a, b) => String(a.set_name).localeCompare(String(b.set_name)) || (a.sort - b.sort) || String(a.id).localeCompare(String(b.id)));
   const sets: Record<string, Any[]> = {};
   const key: Record<string, Any> = {};
   for (const r of rows) {
@@ -159,8 +179,7 @@ async function bank() {
     sets[set].push({ id: r.id, category: r.category, type: String(r.type || 'concept').toLowerCase(), text: r.question, options, asset: r.asset || '', assetAlt: r.asset_alt || '' });
     key[r.id] = { correct, correctText: options[correct], explanation: r.explanation, topic: r.topic || r.category, optionCount: options.length };
   }
-  bankCache = { at: Date.now(), sets, key };
-  return bankCache;
+  return { at: Date.now(), sets, key };
 }
 
 /** Odd attempts → set A, even attempts → set B (falls back to whichever set has questions). */
@@ -741,6 +760,19 @@ async function downloadPdf(p: URLSearchParams) {
   });
 }
 
+// ---- PDF libraries: loaded only when a certificate PDF is built (keeps every other request light) ----
+type PdfLibs = { lib: typeof import('npm:pdf-lib@1.17.1'); fontkit: Any; qrcode: Any };
+let pdfLibs: Promise<PdfLibs> | null = null;
+function loadPdfLibs(): Promise<PdfLibs> {
+  if (!pdfLibs) {
+    pdfLibs = Promise.all([import('npm:pdf-lib@1.17.1'), import('npm:@pdf-lib/fontkit@1.1.1'), import('npm:qrcode-generator@1.4.4')])
+      .then(([lib, fk, qr]: Any[]) => ({ lib, fontkit: fk.default ?? fk, qrcode: qr.default ?? qr }));
+    pdfLibs.catch(() => { pdfLibs = null; });
+  }
+  return pdfLibs;
+}
+let P: PdfLibs['lib'];
+
 // ---- asset loading (cached per function instance) ----
 const assetCache = new Map<string, Uint8Array | null>();
 async function loadAsset(url: string): Promise<Uint8Array | null> {
@@ -766,7 +798,7 @@ async function embedImage(doc: PDFDocument, bytes: Uint8Array | null): Promise<P
 
 const hex = (h: string): RGB => {
   const n = parseInt(h.replace('#', ''), 16);
-  return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
+  return P.rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
 };
 
 /**
@@ -775,6 +807,8 @@ const hex = (h: string): RGB => {
  * Layout zones match certificate.js on the site, so the on-screen preview = the PDF.
  */
 async function buildCertificatePdf(c: Record<string, string>, cert: Any): Promise<Uint8Array> {
+  const libs = await loadPdfLibs();
+  P = libs.lib;
   const W = 842, H = 595;
   const conf = certPublicConfig(c);
   const dark = conf.theme === 'dark';
@@ -784,8 +818,9 @@ async function buildCertificatePdf(c: Record<string, string>, cert: Any): Promis
   const gold = dark ? hex('#FFB547') : hex('#B85C00');
   const accent = dark ? hex('#5CE1E6') : hex('#0E8C92');
 
-  const doc = await PDFDocument.create();
-  doc.registerFontkit(fontkit);
+  const { StandardFonts } = P;
+  const doc = await P.PDFDocument.create();
+  doc.registerFontkit(libs.fontkit);
   doc.setTitle(`${conf.title} — ${cert.name}`);
   doc.setAuthor(c.institute_name || 'ZICA Pune');
   doc.setSubject('ZICA Creative Quest');
@@ -794,7 +829,7 @@ async function buildCertificatePdf(c: Record<string, string>, cert: Any): Promis
   // Fonts: Montserrat from the site, Helvetica as an always-available fallback
   const [fx, fb, fs, fr] = await Promise.all(
     ['ExtraBold', 'Bold', 'SemiBold', 'Regular'].map((w) => loadAsset(absUrl(c, `assets/fonts/Montserrat-${w}.ttf`))));
-  const safeFont = async (bytes: Uint8Array | null, fallback: StandardFonts) => {
+  const safeFont = async (bytes: Uint8Array | null, fallback: (typeof StandardFonts)[keyof typeof StandardFonts]) => {
     if (bytes) { try { return await doc.embedFont(bytes, { subset: true }); } catch (_) { /* fall through */ } }
     return await doc.embedFont(fallback);
   };
@@ -867,7 +902,7 @@ async function buildCertificatePdf(c: Record<string, string>, cert: Any): Promis
 
   // Bottom-right: QR to the public verification page
   const verifyUrl = certPageUrl(c, cert, false);
-  if (siteUrl(c)) drawQr(page, verifyUrl, W - 70 - 66, 56, 66, dark);
+  if (siteUrl(c)) drawQr(libs.qrcode, page, verifyUrl, W - 70 - 66, 56, 66, dark);
   const vtxt = 'Scan to verify';
   page.drawText(vtxt, { x: W - 70 - 33 - fontS.widthOfTextAtSize(vtxt, 7.5) / 2, y: 44, size: 7.5, font: fontS, color: soft });
 
@@ -906,11 +941,11 @@ function drawBuiltInBackground(page: Any, W: number, H: number, dark: boolean) {
   }
   [0, 3, 7, 12].forEach((k) => {
     const x = 220 + k * ((W - 440) / 12);
-    page.drawRectangle({ x: x - 3, y: ty - 3, width: 6, height: 6, rotate: degrees(45), color: hex('#FFB547') });
+    page.drawRectangle({ x: x - 3, y: ty - 3, width: 6, height: 6, rotate: P.degrees(45), color: hex('#FFB547') });
   });
 }
 
-function drawQr(page: Any, text: string, x: number, y: number, size: number, dark: boolean) {
+function drawQr(qrcode: Any, page: Any, text: string, x: number, y: number, size: number, dark: boolean) {
   const qr = qrcode(0, 'M');
   qr.addData(text);
   qr.make();

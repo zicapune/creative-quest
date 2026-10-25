@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: loadtest
+  cancel-in-progress: false
+
 jobs:
   loadtest:
     runs-on: ubuntu-latest
