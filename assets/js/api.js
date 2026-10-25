@@ -48,6 +48,8 @@
       .then(function (r) {
         clearTimeout(timer);
         return r.json().catch(function () { return {}; }).then(function (j) {
+          // A busy-server hiccup (5xx): one quiet retry. Every action is safe to repeat.
+          if (r.status >= 500 && !attempt) return new Promise(function (res) { setTimeout(res, 700); }).then(function () { return post(action, data, 1); });
           if (!r.ok || j.error) throw ApiError(j.error || ('Server error (' + r.status + ')'), j.code, j.fields);
           return j;
         });

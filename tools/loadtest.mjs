@@ -76,7 +76,8 @@ async function student(n) {
   if (!otp.testCode) throw new Error('no test code for load-test lead');
   const verifyBody = { leadId: lead.leadId, leadKey: lead.leadKey, code: otp.testCode };
   const [v1, v2] = await Promise.all([call('otp_verify', verifyBody), n % 4 === 0 ? call('otp_verify', verifyBody).catch((e) => ({ err: e.message })) : Promise.resolve(null)]);
-  if (v2 && !v2.err && v2.certificate.id !== v1.certificate.id) throw new Error('double verify made two certificates');
+  if (v2 && v2.err) throw new Error('double verify: second tap failed (' + v2.err + ')');
+  if (v2 && v2.certificate.id !== v1.certificate.id) throw new Error('double verify made two certificates');
   const t0 = performance.now();
   const pdf = await fetch(v1.certificate.pdfUrl, { headers: ANON ? { apikey: ANON, authorization: 'Bearer ' + ANON } : {} });
   const bytes = new Uint8Array(await pdf.arrayBuffer());

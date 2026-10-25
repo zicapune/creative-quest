@@ -60,7 +60,9 @@ function dbUrl() {
     return u.toString();
   } catch (_) { return raw; }
 }
-const sql = postgres(dbUrl(), { prepare: false, max: 3, idle_timeout: 10, max_lifetime: 300, connect_timeout: 10 });
+// One connection per instance, dropped after 2 idle seconds: instances come and go with traffic,
+// so this keeps the total far below the pooler's client limit even in a burst.
+const sql = postgres(dbUrl(), { prepare: false, max: 1, idle_timeout: 2, max_lifetime: 60, connect_timeout: 10 });
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -100,7 +102,10 @@ async function warm() {
     if (needB) bankCache = buildBank(cfgCache!.cfg, rows.filter((r: Any) => r.t === 'q').map((r: Any) => r.q));
   } catch (e) {
     console.error('warm', e);
-    if (needS) secretsAt = now - 50_000; // retry secrets in ~10 s; cfg()/bank() query on their own
+    // Never run without secrets (a missing OTP_PEPPER would make every code "wrong"): fail this
+    // request so the browser retries. With older secrets in memory, carry on and retry in ~10 s.
+    if (needS && !Object.keys(SECRETS).length) throw e;
+    if (needS) secretsAt = now - 50_000;
   }
 }
 
@@ -466,10 +471,17 @@ async function actOtpVerify(b: Any) {
   const code = String(b.code || '').replace(/\D/g, '');
   if (code.length !== 6) throw new UserError('Enter the 6-digit code.', 'code');
 
-  const [otp] = await sql`select * from otp_codes where lead_id = ${lead.id} and consumed_at is null order by created_at desc limit 1`;
-  if (!otp || new Date(otp.expires_at).getTime() < Date.now()) throw new UserError('That code has expired. Tap "Send a new code".', 'expired_code');
+  const [otp] = await sql`select * from otp_codes where lead_id = ${lead.id} order by created_at desc limit 1`;
+  if (!otp) throw new UserError('That code has expired. Tap "Send a new code".', 'expired_code');
+  const matches = (await hashCode(lead.id, code)) === otp.code_hash;
+  if (otp.consumed_at) {
+    // Same code, used seconds ago: a double tap (or two tabs). Hand back the same certificate.
+    if (matches && Date.now() - new Date(otp.consumed_at).getTime() < 120_000) return await sameCertificate(c, lead, otp);
+    throw new UserError('That code has expired. Tap "Send a new code".', 'expired_code');
+  }
+  if (new Date(otp.expires_at).getTime() < Date.now()) throw new UserError('That code has expired. Tap "Send a new code".', 'expired_code');
   if (otp.tries >= 5) throw new UserError('Too many wrong tries. Tap "Send a new code".', 'locked');
-  if ((await hashCode(lead.id, code)) !== otp.code_hash) {
+  if (!matches) {
     await sql`update otp_codes set tries = tries + 1 where id = ${otp.id}`;
     throw new UserError(`That code doesn't match. ${Math.max(0, 4 - otp.tries)} tries left.`, 'wrong_code');
   }
@@ -478,21 +490,7 @@ async function actOtpVerify(b: Any) {
   if (otp.channel !== 'test' && otp.destination !== current) throw new UserError('Your details changed after the code was sent. Please send a new code.', 'stale_code');
 
   const [claimed] = await sql`update otp_codes set consumed_at = now() where id = ${otp.id} and consumed_at is null returning id`;
-  if (!claimed) {
-    // A double tap: the other request already used this code and is creating the certificate.
-    // Wait for it (up to ~4 s) and return the same certificate.
-    let made: Any = null;
-    for (let i = 0; i < 16 && !made; i++) {
-      [made] = await sql`select * from certificates where lead_id = ${lead.id} and updated_at >= ${otp.created_at}`;
-      if (!made) await new Promise((r) => setTimeout(r, 250));
-    }
-    if (!made) throw new UserError('That code was already used. Tap "Send a new code".', 'used_code');
-    return {
-      ok: true,
-      certificate: { id: made.id, name: made.name, issuedAt: fmtDateLong(made.issued_at), pageUrl: certPageUrl(c, made, true), pdfUrl: certPdfUrl(made), score: made.score, total: made.total },
-      emailed: made.email_sent === 'Sent', whatsapped: made.wa_sent === 'Sent', masked: maskEmail(lead.email)
-    };
-  }
+  if (!claimed) return await sameCertificate(c, lead, otp); // the other tap won the race
   if (otp.channel === 'whatsapp') {
     await sql`update leads set phone_status = 'Verified (WhatsApp code)', phone_verified_at = now() where id = ${lead.id}`;
   } else {
@@ -517,6 +515,22 @@ async function actOtpVerify(b: Any) {
     ok: true,
     certificate: { id: cert.id, name: cert.name, issuedAt: fmtDateLong(cert.issued_at), pageUrl, pdfUrl, score: cert.score, total: cert.total },
     emailed: mail.ok, whatsapped: wa.ok, masked: maskEmail(fresh.email)
+  };
+}
+
+/** A double tap: the other request already used this code and is creating the certificate.
+ *  Wait for it (up to ~4 s) and return the same certificate. */
+async function sameCertificate(c: Record<string, string>, lead: Any, otp: Any) {
+  let made: Any = null;
+  for (let i = 0; i < 16 && !made; i++) {
+    [made] = await sql`select * from certificates where lead_id = ${lead.id} and updated_at >= ${otp.created_at}`;
+    if (!made) await new Promise((r) => setTimeout(r, 250));
+  }
+  if (!made) throw new UserError('That code was already used. Tap "Send a new code".', 'used_code');
+  return {
+    ok: true,
+    certificate: { id: made.id, name: made.name, issuedAt: fmtDateLong(made.issued_at), pageUrl: certPageUrl(c, made, true), pdfUrl: certPdfUrl(made), score: made.score, total: made.total },
+    emailed: made.email_sent === 'Sent', whatsapped: made.wa_sent === 'Sent', masked: maskEmail(lead.email)
   };
 }
 
@@ -734,7 +748,8 @@ function functionUrl() {
   const base = env('SUPABASE_URL').replace(/\/+$/, '');
   return env('QUEST_FUNCTION_URL') || (base + '/functions/v1/quest');
 }
-function certPdfUrl(cert: Any) { return `${functionUrl()}?action=pdf&id=${cert.id}&k=${cert.download_key}`; }
+const REGION = 'ap-south-1'; // same region as the database (Mumbai); also set in config.js FUNCTION_REGION
+function certPdfUrl(cert: Any) { return `${functionUrl()}?action=pdf&id=${cert.id}&k=${cert.download_key}&forceFunctionRegion=${REGION}`; }
 function certPageUrl(c: Record<string, string>, cert: Any, withKey: boolean) {
   const base = siteUrl(c);
   return `${base}/certificate.html?id=${cert.id}${withKey ? '&k=' + cert.download_key : ''}`;
