@@ -137,6 +137,7 @@
     if (C.privacyUrl && !$('notice').querySelector('a')) {
       $('notice').insertAdjacentHTML('beforeend', ' <a href="' + esc(C.privacyUrl) + '" target="_blank" rel="noopener">Privacy policy</a>.');
     }
+    if (!marketingTouched) $('fMarketing').checked = C.marketingPreticked !== false;
     if (C.eligibilityNote) { $('eligNote').textContent = C.eligibilityNote; $('eligNote').hidden = false; }
     $('contactLine').textContent = C.contactLine || '';
     var certOn = !C.cert || C.cert.enabled !== false;
@@ -461,6 +462,8 @@
   function retry() { startAttempt(); beginQuiz(); }
 
   /* ============================ 6. CONTACT ============================ */
+  var marketingTouched = false;
+  $('fMarketing').addEventListener('change', function () { marketingTouched = true; });
   function normalizePhone(raw, cc) {
     var s = String(raw || '').trim(), digits = s.replace(/\D/g, '');
     cc = String(cc || '91').replace(/\D/g, '') || '91';
@@ -512,7 +515,9 @@
       attemptId: S.attemptId, leadKey: S.lead ? S.lead.key : '',
       name: $('fName').value, email: $('fEmail').value, countryCode: $('fCc').value, phone: $('fPhone').value,
       course: $('fCourse').value, waLesson: !$('waLessonRow').hidden && $('fWaLesson').checked,
-      marketing: $('fMarketing').checked, website: $('fWebsite').value, src: BOOT.src, campaign: BOOT.campaign
+      marketing: $('fMarketing').checked,
+      consentSource: $('fMarketing').checked ? (marketingTouched ? 'Ticked by user' : 'Pre-ticked, kept') : (marketingTouched ? 'Unticked by user' : 'Not ticked'),
+      website: $('fWebsite').value, src: BOOT.src, campaign: BOOT.campaign
     }).then(function (res) {
       leadBusy = false; busy(btn, false);
       if (!res.ok) {
