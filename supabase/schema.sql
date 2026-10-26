@@ -232,7 +232,7 @@ insert into public.settings (key, value, notes) values
   ('require_name',        'true', 'Name required on the contact form'),
   ('marketing_preticked', 'true', 'true = the course-updates checkbox starts ticked (students can untick)'),
   ('default_country_code','91', 'Pre-filled WhatsApp country code'),
-  ('course_options',      'Animation (2D & 3D), VFX & Compositing, Game Art & Design, Graphic Design, Filmmaking & Video Editing, Not sure yet', 'Comma-separated; blank hides the field'),
+  ('course_options',      'UI/UX Design, Game Art & Design, 3D Animation & VFX, Film Making & VFX, Motion Graphics & Editing, Graphic Design, Digital Design & Marketing, Product Visualisation & Ad Design, Architectural Design & Animation, Digital Photography, Creative Gen AI, Not sure yet', 'Comma-separated; blank hides the field'),
   ('privacy_url',         '', 'Optional privacy policy link'),
   ('contact_line',        'ZICA Pune, Kothrud', 'Small line on the final screens'),
   ('site_url',            'https://zicapune.github.io/creative-quest', 'REQUIRED for certificates: your live site, e.g. https://quest.zicapune.com (no trailing slash)'),

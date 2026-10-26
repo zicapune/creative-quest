@@ -29,7 +29,7 @@ window.CQ_CONFIG = {
     avatarCertUrl: 'assets/img/avatar-certificate.png',
     trophyUrl: '',
     bgImageUrl: '',
-    courses: ['Animation (2D & 3D)', 'VFX & Compositing', 'Game Art & Design', 'Graphic Design', 'Filmmaking & Video Editing', 'Not sure yet'],
+    courses: ['UI/UX Design', 'Game Art & Design', '3D Animation & VFX', 'Film Making & VFX', 'Motion Graphics & Editing', 'Graphic Design', 'Digital Design & Marketing', 'Product Visualisation & Ad Design', 'Architectural Design & Animation', 'Digital Photography', 'Creative Gen AI', 'Not sure yet'],
     countryCode: '91',
     totalQuestions: 25,
     requireName: true,
