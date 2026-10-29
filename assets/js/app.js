@@ -1,7 +1,9 @@
 /* =====================================================================
    ZICA CREATIVE QUEST — app.js  (v3 · viewport theme)
-   welcome → name → quiz (+feedback) → result → contact → done
-           → confirm details (edit ✏️) → verification code → certificate
+   welcome → name → quiz (+feedback) → result
+           → contact: "Continue with Google" (Supabase Auth) or "Continue without Google"
+           → done → confirm details (edit ✏️) → certificate
+   The old 6-digit code step only runs when the setting otp_enabled = true (dormant).
    Answers, scores, codes and certificates are all decided on the server.
    ===================================================================== */
 (function () {
@@ -21,9 +23,14 @@
     lead: null,            // { id, key }
     contact: null,         // { name, email, phone, countryCode, national, emailVerified, phoneVerified }
     landingUrl: '',
-    otp: null,             // { channel, masked, testCode }
-    certificate: null
+    otp: null,             // { channel, masked, testCode }   (only when otp_enabled)
+    certificate: null,
+    google: null,          // { token, email, name, exp } after "Continue with Google"
+    mode: ''               // 'google' | 'manual' — how the details form was filled
   };
+  var SUPA = String(CFG.SUPABASE_URL || '').replace(/\/+$/, '');
+  function googleAvailable() { return API.mode === 'live' && !!SUPA && C.googleLogin !== false; }
+  function otpOn() { return C.otpEnabled === true; }
 
   /* ---------------------------- helpers ---------------------------- */
   function esc(s) {
@@ -67,7 +74,7 @@
   function show(name, focusId) {
     var prev = document.querySelector('.screen.is-active');
     if (prev) prev.classList.remove('is-active');
-    var next = document.querySelector('[data-screen="' + name + '"]');
+    var next = document.querySelector('.screen[data-screen="' + name + '"]');
     next.classList.add('is-active');
     document.body.setAttribute('data-screen', name);
     current = name;
@@ -129,7 +136,6 @@
       C.courses.forEach(function (c) { var o = document.createElement('option'); o.value = c; o.textContent = c; sel.appendChild(o); });
     }
     $('courseField').hidden = !(C.courses && C.courses.length);
-    if (!$('fCc').value) $('fCc').value = C.countryCode || '91';
     $('waLessonRow').hidden = !C.waAvailable;
     if (C.privacyUrl && !$('notice').querySelector('a')) {
       $('notice').insertAdjacentHTML('beforeend', ' <a href="' + esc(C.privacyUrl) + '" target="_blank" rel="noopener">Privacy policy</a>.');
@@ -139,6 +145,11 @@
     $('contactLine').textContent = C.contactLine || '';
     var certOn = !C.cert || C.cert.enabled !== false;
     $('btnUnlock').textContent = certOn ? 'Get My Free Lessons & Certificate' : 'Get My Free Lessons';
+    $('certOfferText').textContent = otpOn()
+      ? 'A ZICA Creative Quest certificate with your name on it. Check your details, verify with a quick code, and download it.'
+      : 'A ZICA Creative Quest certificate with your name on it. Check your details and download it instantly.';
+    var want = $('fCourse').getAttribute('data-want');
+    if (want) { $('fCourse').value = want; if ($('fCourse').value === want) $('fCourse').removeAttribute('data-want'); }
     if (C.totalQuestions) $('welcomeMeta').textContent = C.totalQuestions + ' questions · ~' + Math.max(3, Math.round(C.totalQuestions / 4)) + ' min · certificate';
     if (API.mode === 'demo') $('modeBadge').innerHTML = '<span class="demo-badge" title="Nothing is saved. Connect Supabase in assets/js/config.js to go live.">Demo mode</span>';
   }
@@ -488,29 +499,133 @@
 
   $('btnUnlock').addEventListener('click', function () {
     if (S.lead) { showDone(); return; }
-    if (!$('fName').value && S.name) $('fName').value = S.name;
-    show('contact', 'contactTitle');
+    openContact();
   });
   $('btnRetry').addEventListener('click', retry);
   $('btnPlayAgain').addEventListener('click', retry);
   function retry() { startAttempt(); beginQuiz(); }
 
   /* ============================ 6. CONTACT ============================ */
+  // Step A: "Continue with Google" or "Continue without Google".  Step B: the details form.
   var marketingTouched = false;
   $('fMarketing').addEventListener('change', function () { marketingTouched = true; });
-  function normalizePhone(raw, cc) {
-    var s = String(raw || '').trim(), digits = s.replace(/\D/g, '');
-    cc = String(cc || '91').replace(/\D/g, '') || '91';
-    var full;
-    if (/^(\+|00)/.test(s)) full = s.indexOf('00') === 0 ? digits.replace(/^00/, '') : digits;
-    else if (cc === '91') {
-      if (digits.length === 10) full = '91' + digits;
-      else if (digits.length === 11 && digits.charAt(0) === '0') full = '91' + digits.slice(1);
-      else if (digits.length === 12 && digits.indexOf('91') === 0) full = digits;
-      else return '';
-    } else full = cc + digits.replace(/^0+/, '');
-    if (full.indexOf('91') === 0) return /^91[6-9]\d{9}$/.test(full) ? '+' + full : '';
-    return /^[1-9]\d{7,14}$/.test(full) ? '+' + full : '';
+
+  function openContact() {
+    if (S.google && !googleExpired()) return showLeadForm('google');
+    if (!googleAvailable()) return showLeadForm('manual');
+    $('signinBox').hidden = false;
+    $('leadForm').hidden = true;
+    busy($('btnGoogle'), false);
+    show('contact', 'contactTitle');
+  }
+
+  function showLeadForm(mode) {
+    var g = mode === 'google' && !!S.google;
+    S.mode = g ? 'google' : 'manual';
+    $('signinBox').hidden = true;
+    $('leadForm').hidden = false;
+    $('gBadge').hidden = !g;
+    $('emailLock').hidden = !g;
+    var em = $('fEmail');
+    if (g) {
+      $('gEmailLine').textContent = S.google.email;
+      em.value = S.google.email;
+      em.readOnly = true; em.setAttribute('aria-readonly', 'true');
+      if (!$('fName').value.trim()) $('fName').value = S.google.name || S.name || '';
+    } else {
+      if (em.readOnly) em.value = '';
+      em.readOnly = false; em.removeAttribute('aria-readonly');
+      if (!$('fName').value.trim() && S.name) $('fName').value = S.name;
+    }
+    setErr('fEmail', 'eEmail', '');
+    $('btnBackScore').textContent = googleAvailable() ? 'Back' : 'Back to my score';
+    show('contact', g && $('fName').value.trim() ? 'fPhone' : 'contactTitle');
+    if ($('fPhone').value) phoneUI('fPhone', false);
+  }
+
+  $('btnNoGoogle').addEventListener('click', function () { showLeadForm('manual'); });
+  $('btnBackScore0').addEventListener('click', backToScore);
+  $('btnBackScore').addEventListener('click', function () {
+    if (googleAvailable()) { $('signinBox').hidden = false; $('leadForm').hidden = true; busy($('btnGoogle'), false); show('contact', 'contactTitle'); }
+    else backToScore();
+  });
+  function backToScore() { if (S.result) showResult(); else show('welcome'); }
+
+  /* ---- Google (Supabase Auth, implicit flow: the token comes back in the URL #fragment) ---- */
+  function googleExpired() { return !S.google || (S.google.exp && S.google.exp * 1000 < Date.now() + 60000); }
+  $('btnGoogle').addEventListener('click', function () {
+    if (S.google && !googleExpired()) return showLeadForm('google');
+    var btn = $('btnGoogle');
+    busy(btn, true);
+    // The page reloads after Google, so remember where the student is.
+    store('resume', {
+      attemptId: S.attemptId, attemptNo: S.attemptNo, set: S.set || '', result: S.result, name: S.name,
+      src: BOOT.src, campaign: BOOT.campaign,
+      phone: $('fPhone').value, course: $('fCourse').value, marketing: $('fMarketing').checked, marketingTouched: marketingTouched,
+      at: Date.now()
+    });
+    var back = location.origin + location.pathname;
+    location.assign(SUPA + '/auth/v1/authorize?provider=google&redirect_to=' + encodeURIComponent(back));
+    setTimeout(function () { busy(btn, false); }, 10000); // if the page didn't leave (offline)
+  });
+
+  function jwtPayload(t) {
+    try {
+      var b = String(t).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (b.length % 4) b += '=';
+      return JSON.parse(decodeURIComponent(escape(atob(b))));
+    } catch (e) { return null; }
+  }
+
+  /** Runs once on page load: picks up the Google sign-in result (or error) from the URL. */
+  function handleAuthReturn() {
+    var hp = new URLSearchParams(location.hash.replace(/^#/, ''));
+    var qp = new URLSearchParams(location.search);
+    var token = hp.get('access_token') || '';
+    var err = hp.get('error_description') || hp.get('error') || qp.get('error_description') || qp.get('error') || '';
+    if (!token && !err) return;
+    ['error', 'error_code', 'error_description', 'code'].forEach(function (k) { qp.delete(k); });
+    try { history.replaceState(null, '', location.pathname + (qp.toString() ? '?' + qp.toString() : '')); } catch (e) {}
+
+    var r = recall('resume');
+    store('resume', null);
+    if (r && r.at && Date.now() - r.at < 2 * 3600 * 1000) {
+      S.attemptId = r.attemptId || ''; S.attemptNo = r.attemptNo || S.attemptNo; S.set = r.set || '';
+      S.result = r.result || null; S.name = r.name || '';
+      if (r.src) BOOT.src = r.src;
+      if (r.campaign) BOOT.campaign = r.campaign;
+      if (r.phone) $('fPhone').value = r.phone;
+      if (r.course) { $('fCourse').setAttribute('data-want', r.course); $('fCourse').value = r.course; }
+      $('fMarketing').checked = r.marketing !== false;
+      marketingTouched = !!r.marketingTouched;
+    } else r = null;
+
+    if (token) {
+      var p = jwtPayload(token) || {};
+      var md = p.user_metadata || {};
+      S.google = { token: token, email: String(p.email || md.email || '').toLowerCase(), name: String(md.full_name || md.name || '').trim(), exp: p.exp || 0 };
+      store('google', S.google);
+    }
+    if (r && r.result) {
+      if (token && S.google.email) showLeadForm('google');
+      else { openContact(); toast('Google sign-in didn\'t finish. Try again, or tap "Continue without Google".', 7000); }
+    } else if (token) {
+      toast('Signed in with Google — start the quest and we\'ll use this account at the end.', 6000);
+    } else if (err) {
+      toast('Google sign-in didn\'t finish. You can continue without Google at the end of the quest.', 6000);
+    }
+  }
+
+  /* ---- validation ---- */
+  var PHONE_MSG = 'Enter a 10-digit Indian mobile number starting with 6, 7, 8 or 9.';
+  // Strip spaces, dashes and a leading +91 / 91 / 0 → exactly 10 digits starting 6–9 → stored as +91XXXXXXXXXX
+  function indianMobile(raw) {
+    var d = String(raw || '').trim().replace(/[\s\-().]/g, '');
+    if (d.indexOf('+91') === 0) d = d.slice(3);
+    else if (d.indexOf('0091') === 0) d = d.slice(4);
+    else if (d.length === 12 && d.indexOf('91') === 0) d = d.slice(2);
+    else if (d.length === 11 && d.charAt(0) === '0') d = d.slice(1);
+    return /^[6-9]\d{9}$/.test(d) ? d : '';
   }
   function validEmail(e) {
     e = String(e || '').trim().toLowerCase();
@@ -522,32 +637,60 @@
     $(inputId).setAttribute('aria-invalid', msg ? 'true' : 'false');
     if (msg) $(inputId).setAttribute('aria-describedby', errId); else $(inputId).removeAttribute('aria-describedby');
   }
+  // Inline phone check: once the student has typed 10+ digits (or left the field), the error
+  // stays until the number is valid; a cyan tick shows when it is.
+  var phoneTouched = {};
+  function phoneUI(id, force) {
+    var el = $(id), wrap = el.closest('.phone'), nat = indianMobile(el.value), ok = !!nat;
+    // Once valid, show it tidily as "98765 43210" (the +91 sits in front of the field)
+    if (ok && el.value !== nat.slice(0, 5) + ' ' + nat.slice(5)) el.value = nat.slice(0, 5) + ' ' + nat.slice(5);
+    var digits = el.value.replace(/\D/g, '');
+    wrap.classList.toggle('is-valid', ok);
+    var msg = '';
+    if (!ok && (force || ((phoneTouched[id] || digits.length >= 10) && el.value.trim()))) msg = PHONE_MSG;
+    if (id === 'fPhone') setErr('fPhone', 'ePhone', msg);
+    else setDetailErr('phone', msg);
+    return ok;
+  }
+  ['fPhone', 'edPhone'].forEach(function (id) {
+    $(id).addEventListener('input', function () { phoneUI(id, false); });
+    $(id).addEventListener('blur', function () { if (this.value.trim()) { phoneTouched[id] = true; phoneUI(id, false); } });
+  });
+
   function validateForm() {
     var ok = true, first = null;
     if (C.requireName !== false && $('fName').value.trim().length < 2) { setErr('fName', 'eName', 'Please tell us your name.'); ok = false; first = first || 'fName'; }
     else setErr('fName', 'eName', '');
-    if (!validEmail($('fEmail').value)) { setErr('fEmail', 'eEmail', 'Please check your email address.'); ok = false; first = first || 'fEmail'; }
-    else setErr('fEmail', 'eEmail', '');
-    if (!normalizePhone($('fPhone').value, $('fCc').value)) { setErr('fPhone', 'ePhone', 'Please enter a valid WhatsApp mobile number, including the country code.'); ok = false; first = first || 'fPhone'; }
-    else setErr('fPhone', 'ePhone', '');
+    if (S.mode !== 'google') {
+      if (!validEmail($('fEmail').value)) { setErr('fEmail', 'eEmail', 'Please check your email address.'); ok = false; first = first || 'fEmail'; }
+      else setErr('fEmail', 'eEmail', '');
+    }
+    if (!phoneUI('fPhone', true)) { ok = false; first = first || 'fPhone'; }
     if (first) $(first).focus();
     return ok;
   }
-  [['fName', 'eName'], ['fEmail', 'eEmail'], ['fPhone', 'ePhone']].forEach(function (p) {
+  [['fName', 'eName'], ['fEmail', 'eEmail']].forEach(function (p) {
     $(p[0]).addEventListener('input', function () { if ($(p[1]).textContent) setErr(p[0], p[1], ''); });
   });
-  ['fCc', 'edCc'].forEach(function (id) { $(id).addEventListener('input', function () { this.value = this.value.replace(/\D/g, '').slice(0, 4); }); });
 
   var leadBusy = false;
   $('leadForm').addEventListener('submit', function (e) {
     e.preventDefault();
     if (leadBusy || !validateForm()) return;
+    var useGoogle = S.mode === 'google' && !!S.google;
+    if (useGoogle && googleExpired()) {
+      S.google = null; store('google', null);
+      toast('Your Google sign-in expired — tap "Continue with Google" again, or continue without Google.', 7000);
+      openContact();
+      return;
+    }
     leadBusy = true;
     var btn = $('btnLead');
     busy(btn, true);
     API.call('lead', {
       attemptId: S.attemptId, leadKey: S.lead ? S.lead.key : '',
-      name: $('fName').value, email: $('fEmail').value, countryCode: $('fCc').value, phone: $('fPhone').value,
+      accessToken: useGoogle ? S.google.token : '',
+      name: $('fName').value, email: useGoogle ? '' : $('fEmail').value, phone: $('fPhone').value,
       course: $('fCourse').value, waLesson: !$('waLessonRow').hidden && $('fWaLesson').checked,
       marketing: $('fMarketing').checked,
       consentSource: $('fMarketing').checked ? (marketingTouched ? 'Ticked by user' : 'Pre-ticked, kept') : (marketingTouched ? 'Unticked by user' : 'Not ticked'),
@@ -557,18 +700,22 @@
       if (!res.ok) {
         var er = res.errors || {};
         setErr('fName', 'eName', er.name); setErr('fEmail', 'eEmail', er.email); setErr('fPhone', 'ePhone', er.phone);
-        $(er.name ? 'fName' : (er.email ? 'fEmail' : 'fPhone')).focus();
+        if (er.email && S.mode === 'google') toast(er.email, 7000);
+        $(er.name ? 'fName' : (er.email && S.mode !== 'google' ? 'fEmail' : 'fPhone')).focus();
         return;
       }
       S.lead = { id: res.leadId, key: res.leadKey };
       S.contact = res.contact || null;
       S.landingUrl = res.landingUrl || '';
-      if (!S.name && $('fName').value.trim()) S.name = $('fName').value.trim();
+      if ($('fName').value.trim()) S.name = $('fName').value.trim();
       saveSession();
       showDone();
-    }).catch(function (err) { leadBusy = false; busy(btn, false); toast(errText(err)); });
+    }).catch(function (err) {
+      leadBusy = false; busy(btn, false);
+      if (err && err.code === 'google_expired') { S.google = null; store('google', null); openContact(); toast(errText(err), 7000); return; }
+      toast(errText(err));
+    });
   });
-  $('btnBackScore').addEventListener('click', function () { show('result', 'resTitle'); });
 
   function saveSession() {
     store('lead', S.lead); store('contact', S.contact); store('landing', S.landingUrl); store('cert', S.certificate);
@@ -611,10 +758,10 @@
     }
     return n;
   }
-  function prettyPhone(cc, nat) {
-    nat = String(nat || '');
-    if (cc === '91' && nat.length === 10) nat = nat.slice(0, 5) + ' ' + nat.slice(5);
-    return '+' + cc + ' ' + nat;
+  function prettyPhone(nat) {
+    var d = indianMobile(nat) || String(nat || '').replace(/\D/g, '');
+    if (d.length === 10) d = d.slice(0, 5) + ' ' + d.slice(5);
+    return '+91 ' + d;
   }
 
   function openConfirm() {
@@ -622,16 +769,17 @@
     draft = {
       name: certName(c.name) || c.name || S.name || '',
       email: c.email || '',
-      cc: c.countryCode || C.countryCode || '91',
       national: c.national || ''
     };
+    detailEl('email').classList.toggle('is-locked', !!c.verified);
     if (!preview) {
       preview = CQCert.render($('certPreview'), { name: draft.name }, C.cert || {}, { placeholderName: 'Your Name' });
     }
     paintDetails();
     ['name', 'email', 'phone'].forEach(function (f) { closeEditor(f); setDetailErr(f, ''); });
     $('fConfirm').checked = false;
-    $('otpHint').innerHTML = otpHint();
+    $('otpHint').innerHTML = otpOn() ? otpHint() : 'Your certificate is created straight away — download it on the next screen.';
+    $('btnSendCode').textContent = otpOn() ? 'Send My Verification Code' : 'Create My Certificate';
     show('confirm', 'confirmTitle');
     // Names that can't be printed open the editor straight away
     if (!certName(draft.name)) {
@@ -650,8 +798,8 @@
     var c = S.contact || {};
     $('dvName').textContent = draft.name || 'Add your name';
     $('dvEmail').textContent = draft.email;
-    $('dvPhone').textContent = prettyPhone(draft.cc, draft.national);
-    $('bdEmail').textContent = c.emailVerified && c.email === draft.email ? 'Verified' : '';
+    $('dvPhone').textContent = prettyPhone(draft.national);
+    $('bdEmail').textContent = c.verified ? 'Verified · Google' : '';
     $('bdPhone').textContent = c.phoneVerified ? 'Verified' : '';
     if (preview) preview.setName(certName(draft.name) || draft.name);
   }
@@ -659,12 +807,13 @@
   function detailEl(f) { return document.querySelector('.detail[data-field="' + f + '"]'); }
   function openEditor(f) {
     var el = detailEl(f);
+    if (el.classList.contains('is-locked')) return;
     el.classList.add('is-editing');
     el.querySelector('.detail__editor').hidden = false;
     el.querySelector('.detail__edit').setAttribute('aria-expanded', 'true');
     if (f === 'name') { $('edName').value = draft.name; $('edName').focus(); }
     if (f === 'email') { $('edEmail').value = draft.email; $('edEmail').focus(); }
-    if (f === 'phone') { $('edCc').value = draft.cc; $('edPhone').value = draft.national; $('edPhone').focus(); }
+    if (f === 'phone') { $('edPhone').value = draft.national; phoneUI('edPhone', false); $('edPhone').focus(); }
   }
   function closeEditor(f) {
     var el = detailEl(f);
@@ -694,12 +843,9 @@
     setDetailErr('name', '');
   });
   $('edEmail').addEventListener('input', function () { draft.email = this.value.trim(); $('dvEmail').innerHTML = esc(draft.email).replace('@', '@<wbr>'); setDetailErr('email', ''); });
-  ['edCc', 'edPhone'].forEach(function (id) {
-    $(id).addEventListener('input', function () {
-      draft.cc = $('edCc').value || '91'; draft.national = $('edPhone').value.trim();
-      $('dvPhone').textContent = prettyPhone(draft.cc, draft.national.replace(/\D/g, ''));
-      setDetailErr('phone', '');
-    });
+  $('edPhone').addEventListener('input', function () {
+    draft.national = $('edPhone').value.trim();
+    $('dvPhone').textContent = prettyPhone(draft.national);
   });
   ['edName', 'edEmail', 'edPhone'].forEach(function (id) {
     $(id).addEventListener('keydown', function (e) {
@@ -715,8 +861,8 @@
   function localCheck() {
     var ok = true;
     if (!certName(draft.name)) { setDetailErr('name', 'Use English letters (2–60), exactly as it should be printed.'); openEditor('name'); ok = false; }
-    if (!validEmail(draft.email)) { setDetailErr('email', 'Please check your email address.'); if (ok) openEditor('email'); ok = false; }
-    if (!normalizePhone(draft.national, draft.cc)) { setDetailErr('phone', 'Please enter a valid WhatsApp mobile number.'); if (ok) openEditor('phone'); ok = false; }
+    if (!detailEl('email').classList.contains('is-locked') && !validEmail(draft.email)) { setDetailErr('email', 'Please check your email address.'); if (ok) openEditor('email'); ok = false; }
+    if (!indianMobile(draft.national)) { setDetailErr('phone', PHONE_MSG); if (ok) openEditor('phone'); ok = false; }
     return ok;
   }
 
@@ -735,7 +881,7 @@
     sendBusy = true;
     var btn = $('btnSendCode');
     busy(btn, true);
-    API.call('confirm', { leadId: S.lead.id, leadKey: S.lead.key, name: draft.name, email: draft.email, countryCode: draft.cc, phone: draft.national })
+    API.call('confirm', { leadId: S.lead.id, leadKey: S.lead.key, name: draft.name, email: draft.email, phone: draft.national })
       .then(function (res) {
         if (!res.ok) {
           var er = res.errors || {};
@@ -746,17 +892,22 @@
         if (res.contact && res.contact.name) { draft.name = res.contact.name; S.name = res.contact.name; }
         saveSession();
         paintDetails();
-        return API.call('otp_send', { leadId: S.lead.id, leadKey: S.lead.key });
+        if (otpOn()) return API.call('otp_send', { leadId: S.lead.id, leadKey: S.lead.key }).then(function (otp) { return { otp: otp }; });
+        return API.call('cert_issue', { leadId: S.lead.id, leadKey: S.lead.key }).then(function (res) { return { cert: res }; });
       })
-      .then(function (otp) {
+      .then(function (out) {
         sendBusy = false; busy(btn, false);
-        S.otp = otp;
-        openOtp();
+        if (out.otp) { S.otp = out.otp; openOtp(); return; }
+        var res = out.cert;
+        S.certificate = Object.assign({}, res.certificate, { emailed: res.emailed, masked: res.masked });
+        saveSession();
+        showCertificate(true);
       })
       .catch(function (err) {
         sendBusy = false; busy(btn, false);
         if (!err) return;
-        if (err.code === 'no_lead') { S.lead = null; saveSession(); show('contact', 'contactTitle'); }
+        if (err.code === 'no_lead') { S.lead = null; saveSession(); openContact(); }
+        if (err.code === 'otp_required') { C.otpEnabled = true; }
         if (err.code === 'cooldown' && S.otp) { openOtp(); return; }
         toast(errText(err));
       });
@@ -878,4 +1029,7 @@
   S.contact = recall('contact');
   S.landingUrl = recall('landing') || '';
   S.certificate = recall('cert');
+  S.google = recall('google');
+  if (S.google && googleExpired()) { S.google = null; store('google', null); }
+  handleAuthReturn();
 })();

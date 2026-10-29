@@ -19,11 +19,10 @@ window.CQ_DEMO = (function () {
   function rid(n) { var c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', s = ''; for (var i = 0; i < n; i++) s += c[Math.floor(Math.random() * c.length)]; return s; }
   function fail(msg, code) { var e = new Error(msg); e.code = code || 'user'; throw e; }
   function maskEmail(e) { var p = String(e).split('@'); return p[1] ? p[0].slice(0, 2) + '••••@' + p[1] : e; }
-  function phoneOk(p, cc) {
-    var d = String(p || '').replace(/\D/g, ''); cc = String(cc || '91').replace(/\D/g, '') || '91';
-    if (/^\s*\+/.test(p)) return d.length >= 8 && d.length <= 15 ? '+' + d : '';
-    if (cc === '91') { if (d.length === 12 && d.indexOf('91') === 0) d = d.slice(2); if (d.length === 11 && d[0] === '0') d = d.slice(1); return /^[6-9]\d{9}$/.test(d) ? '+91' + d : ''; }
-    d = d.replace(/^0+/, ''); return (cc + d).length >= 8 && (cc + d).length <= 15 ? '+' + cc + d : '';
+  function phoneOk(p) {
+    var d = String(p || '').trim().replace(/[\s\-().]/g, '');
+    if (d.indexOf('+91') === 0) d = d.slice(3); else if (d.length === 12 && d.indexOf('91') === 0) d = d.slice(2); else if (d.length === 11 && d.charAt(0) === '0') d = d.slice(1);
+    return /^[6-9]\d{9}$/.test(d) ? '+91' + d : '';
   }
   function emailOk(e) { e = String(e || '').trim().toLowerCase(); return /^[a-z0-9._%+'-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/.test(e) ? e : ''; }
   function certName(n) {
@@ -32,7 +31,7 @@ window.CQ_DEMO = (function () {
     if (n === n.toLowerCase() || n === n.toUpperCase()) n = n.toLowerCase().replace(/(^|[\s'-])([a-zà-öø-ÿ])/g, function (m, p, c) { return p + c.toUpperCase(); });
     return n;
   }
-  function contact(l) { return { name: l.name, email: l.email, phone: l.phone, countryCode: l.phone.indexOf('+91') === 0 ? '91' : '', national: l.phone.replace(/^\+91/, '').replace(/^\+/, ''), emailVerified: !!l.verified, phoneVerified: false }; }
+  function contact(l) { return { name: l.name, email: l.email, phone: l.phone, countryCode: l.phone.indexOf('+91') === 0 ? '91' : '', national: l.phone.replace(/^\+91/, '').replace(/^\+/, ''), emailVerified: !!l.verified, phoneVerified: false, verified: !!l.verified, provider: 'manual' }; }
   function pub(q) { return { id: q.id, category: q.category, type: q.type, text: q.text, options: q.options, asset: q.asset, assetAlt: q.assetAlt }; }
   function byId(id) { return ALL.filter(function (q) { return q.id === id; })[0]; }
 
@@ -61,10 +60,10 @@ window.CQ_DEMO = (function () {
     },
     lead: function (b) {
       var errors = {};
-      var name = String(b.name || '').trim(), email = emailOk(b.email), phone = phoneOk(b.phone, b.countryCode);
+      var name = String(b.name || '').trim(), email = emailOk(b.email), phone = phoneOk(b.phone);
       if (name.length < 2) errors.name = 'Please tell us your name.';
       if (!email) errors.email = 'Please check your email address.';
-      if (!phone) errors.phone = 'Please enter a valid WhatsApp mobile number, including the country code.';
+      if (!phone) errors.phone = 'Enter a 10-digit Indian mobile number starting with 6, 7, 8 or 9.';
       if (Object.keys(errors).length) return { ok: false, errors: errors };
       var a = store.attempts[b.attemptId];
       store.lead = { id: 'L-DEMO' + rid(4), key: rid(24), name: name, email: email, phone: phone, best: a ? a.score : 0, total: a ? a.qids.length : LIMIT, verified: false };
@@ -76,10 +75,10 @@ window.CQ_DEMO = (function () {
     confirm: function (b) {
       if (!store.lead) fail('Please enter your details again.', 'no_lead');
       var errors = {};
-      var name = certName(b.name), email = emailOk(b.email), phone = phoneOk(b.phone, b.countryCode);
+      var name = certName(b.name), email = emailOk(b.email), phone = phoneOk(b.phone);
       if (!name) errors.name = 'Use English letters for your name (2–60 characters), exactly as it should be printed.';
       if (!email) errors.email = 'Please check your email address.';
-      if (!phone) errors.phone = 'Please enter a valid WhatsApp mobile number, including the country code.';
+      if (!phone) errors.phone = 'Enter a 10-digit Indian mobile number starting with 6, 7, 8 or 9.';
       if (Object.keys(errors).length) return { ok: false, errors: errors };
       Object.assign(store.lead, { name: name, email: email, phone: phone }); save();
       return { ok: true, contact: contact(store.lead), otp: { channel: 'email', masked: maskEmail(email) } };
@@ -92,6 +91,13 @@ window.CQ_DEMO = (function () {
     otp_verify: function (b) {
       if (!store.otp || String(b.code) !== store.otp) fail('That code doesn\'t match. Check the code and try again.', 'wrong_code');
       store.otp = null;
+      var id = (store.cert && store.cert.id) || ('ZCQ26-' + rid(6));
+      store.cert = { id: id, name: store.lead.name, issuedAt: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }), score: store.lead.best, total: store.lead.total };
+      save();
+      return { ok: true, certificate: Object.assign({ pageUrl: 'certificate.html?id=' + id + '&k=demo', pdfUrl: '' }, store.cert), emailed: false, whatsapped: false, masked: maskEmail(store.lead.email) };
+    },
+    cert_issue: function () {
+      if (!store.lead) fail('Please enter your details again.', 'no_lead');
       var id = (store.cert && store.cert.id) || ('ZCQ26-' + rid(6));
       store.cert = { id: id, name: store.lead.name, issuedAt: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }), score: store.lead.best, total: store.lead.total };
       save();

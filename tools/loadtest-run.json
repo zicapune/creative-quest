@@ -1,10 +1,9 @@
 {
   "note": "Editing this file on main runs the load test (Actions \u2192 Load test). The token only unlocks load-test actions and is rotated after each run.",
   "users": [
-    20,
-    40
+    20
   ],
   "thinkMs": 400,
-  "token": "lt_5294a14aa7784f010809862ebfb877cb",
-  "run": 5
+  "token": "lt_0690370e4dd9a310513b41b7a0787534",
+  "run": 6
 }

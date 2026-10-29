@@ -12,8 +12,9 @@
 //   link          attach a retry attempt to an existing lead
 //   opened        participant opened the free lessons
 //   confirm       final check / edit of name, email, number before the certificate
-//   otp_send      send a 6-digit code (email now; WhatsApp/SMS dormant, see bottom)
-//   otp_verify    check the code → issue certificate
+//   cert_issue    create the certificate (when settings.otp_enabled = false — the default)
+//   otp_send      DORMANT unless otp_enabled = true: send a 6-digit code (email; WhatsApp/SMS dormant)
+//   otp_verify    DORMANT unless otp_enabled = true: check the code → issue certificate
 //   cert          public verification of a certificate id
 //   GET ?action=pdf&id=…&k=…   download the certificate PDF (generated on demand)
 //   admin_export  (SYNC_TOKEN) rows changed since a time → Google Sheets
@@ -21,6 +22,10 @@
 //   admin_purge_loadtest (SYNC_TOKEN) delete rows created by tools/loadtest.mjs
 //   POST ?hook=email&token=…   Brevo email delivery events
 //   POST ?hook=whatsapp&token=…  WhatsApp delivery events (dormant)
+//
+// Sign-in: "Continue with Google" uses Supabase Auth's Google provider in the browser; the browser
+// sends the Supabase access token with `lead`, and this function checks it with Supabase Auth.
+// Without Google, details are saved with verified = false.
 //
 // SECRETS (Supabase → Edge Functions → Secrets):
 //   BREVO_API_KEY     Brevo API key (emails: OTP + certificate link)
@@ -34,7 +39,6 @@
 
 import postgres from 'npm:postgres@3.4.5';
 import type { PDFDocument, PDFFont, PDFImage, RGB } from 'npm:pdf-lib@1.17.1';
-import { parsePhoneNumberFromString } from 'npm:libphonenumber-js@1.11.18/max';
 
 // deno-lint-ignore no-explicit-any
 type Any = any;
@@ -142,7 +146,7 @@ Deno.serve(async (req: Request) => {
 const ACTIONS: Record<string, (b: Any) => Promise<unknown>> = {
   boot: actBoot, start: actStart, answer: actAnswer, finish: actFinish,
   lead: actLead, link: actLink, opened: actOpened,
-  confirm: actConfirm, otp_send: actOtpSend, otp_verify: actOtpVerify, cert: actCert,
+  confirm: actConfirm, otp_send: actOtpSend, otp_verify: actOtpVerify, cert_issue: actCertIssue, cert: actCert,
   admin_export: actAdminExport, admin_push: actAdminPush
 };
 
@@ -220,6 +224,27 @@ function absUrl(c: Record<string, string>, path: string) {
   return base ? base + '/' + path.replace(/^\/+/, '') : '';
 }
 function emailProvider() { return env('BREVO_API_KEY') ? 'brevo' : 'none'; }
+/** The 6-digit code step is OFF unless settings.otp_enabled = true (it needs Brevo or WhatsApp). */
+function otpEnabled(c: Record<string, string>) { return truthy(c.otp_enabled, false); }
+
+/** Checks a Supabase Auth access token (from "Continue with Google") with Supabase Auth itself. */
+async function googleUser(accessToken: string) {
+  const token = String(accessToken || '').trim();
+  if (!token || token.length > 4000) return null;
+  const base = env('SUPABASE_URL').replace(/\/+$/, '');
+  let key = env('SUPABASE_ANON_KEY');
+  if (!key) { try { key = Object.values(JSON.parse(env('SUPABASE_PUBLISHABLE_KEYS', '{}')) as Record<string, string>)[0] || ''; } catch (_) { key = ''; } }
+  try {
+    const r = await fetch(base + '/auth/v1/user', { headers: { apikey: key, authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return null;
+    const u: Any = await r.json();
+    const email = normalizeEmail(u?.email);
+    const provider = String(u?.app_metadata?.provider || '');
+    if (!email || provider !== 'google') return null;
+    const md = u.user_metadata || {};
+    return { id: String(u.id || ''), email, name: cleanName(md.full_name || md.name || '') };
+  } catch (_) { return null; }
+}
 
 // =============================================================== ACTIONS
 
@@ -235,6 +260,8 @@ async function actBoot() {
     waAvailable: false, // lesson link on WhatsApp: switch on together with wa_provider (see bottom of file)
     cert: certPublicConfig(c),
     otpChannel: otpChannelFor(c),
+    otpEnabled: otpEnabled(c),
+    googleLogin: truthy(c.google_login, true),
     totalQuestions: clampInt(c.total_questions, 1, 60, 25)
   };
 }
@@ -301,15 +328,22 @@ async function actLead(b: Any) {
   const c = await cfg();
   if (String(b.website || '').trim()) return { ok: true, leadId: '', leadKey: '', landingUrl: httpsOnly(c.landing_url) }; // honeypot
 
+  // "Continue with Google": the email comes from the verified Google account, never from the form.
+  let g: { id: string; email: string; name: string } | null = null;
+  if (b.accessToken) {
+    g = await googleUser(b.accessToken);
+    if (!g) throw new UserError('Your Google sign-in expired. Please tap "Continue with Google" again, or continue without Google.', 'google_expired');
+  }
+
   const errors: Record<string, string> = {};
-  const name = cleanName(b.name);
+  const name = cleanName(b.name) || (g ? g.name : '');
   if (truthy(c.require_name, true) && name.length < 2) errors.name = 'Please tell us your name.';
-  const email = normalizeEmail(b.email);
+  const email = g ? g.email : normalizeEmail(b.email);
   if (!email) errors.email = 'Please check your email address.';
-  const phone = normalizePhone(b.phone, b.countryCode || c.default_country_code || '91');
-  if (!phone) errors.phone = 'Please enter a valid WhatsApp mobile number, including the country code.';
-  let emailCheck = 'unchecked';
-  if (email) {
+  const phone = normalizePhone(b.phone);
+  if (!phone) errors.phone = PHONE_ERROR;
+  let emailCheck = g ? 'ok' : 'unchecked';
+  if (email && !g) {
     emailCheck = await checkEmailDomain(email);
     if (emailCheck === 'disposable') errors.email = 'Please use your own email address — temporary inboxes can\'t receive your certificate.';
     if (emailCheck === 'no_mail_server') errors.email = 'That email domain can\'t receive mail. Please check the spelling.';
@@ -321,6 +355,8 @@ async function actLead(b: Any) {
   const marketing = b.marketing === true;
   const consentSource = ['Ticked by user', 'Pre-ticked, kept', 'Unticked by user', 'Not ticked'].includes(b.consentSource) ? b.consentSource : (marketing ? 'Ticked' : 'Not ticked');
   const attempt = await finishedAttempt(String(b.attemptId || ''));
+  const verified = !!g;
+  const provider = g ? 'google' : 'manual';
 
   const loadTest = isLoadTest(b);
   const saveLead = () => sql.begin(async (tx: Any) => {
@@ -334,24 +370,33 @@ async function actLead(b: Any) {
         src: loadTest ? 'loadtest' : token(b.src || attempt?.src || 'direct', 60), campaign: token(b.campaign || attempt?.campaign || c.campaign_name || '', 80),
         marketing_consent: marketing, marketing_consent_at: marketing ? new Date() : null, consent_source: consentSource,
         email_check: emailCheck, name_original: name, email_original: email, phone_original: phone,
-        lesson_wa: b.waLesson === true
+        lesson_wa: b.waLesson === true,
+        verified, auth_provider: provider, auth_user_id: g ? g.id : '',
+        email_status: verified ? 'Verified (Google)' : 'Not verified', email_verified_at: verified ? new Date() : null
       })} returning *`;
     } else {
       const sameOwner = String(b.leadKey || '') === lead.lead_key;
-      // Someone else's browser can't overwrite contact details that were already verified by a code
-      const locked = !sameOwner && !!(lead.email_verified_at || lead.phone_verified_at);
-      const newMarketing = marketing || (locked && lead.marketing_consent);
+      const sameGoogle = !!g && lead.verified && lead.auth_provider === 'google' && lead.email === email;
+      // A Google-verified entry can only be changed by its owner (same browser or same Google account).
+      if (lead.verified && !sameOwner && !sameGoogle) {
+        const field = lead.phone === phone ? 'phone' : 'email';
+        return { conflict: field };
+      }
+      const upgrade = verified || lead.verified; // never downgrade a verified entry
       await tx`update leads set
-          name  = ${locked ? lead.name : (name || lead.name)},
-          email = ${locked ? lead.email : email},
-          phone = ${locked ? lead.phone : phone},
-          email_check = ${locked ? lead.email_check : emailCheck},
-          email_status = ${!locked && email !== lead.email ? 'Unverified' : lead.email_status},
-          email_verified_at = ${!locked && email !== lead.email ? null : lead.email_verified_at},
+          name  = ${name || lead.name},
+          email = ${email},
+          phone = ${phone},
+          email_check = ${emailCheck},
+          email_status = ${upgrade ? 'Verified (Google)' : (email !== lead.email ? 'Not verified' : lead.email_status)},
+          email_verified_at = ${verified ? new Date() : (upgrade ? lead.email_verified_at : (email !== lead.email ? null : lead.email_verified_at))},
+          verified = ${upgrade},
+          auth_provider = ${verified ? 'google' : lead.auth_provider},
+          auth_user_id = ${g ? g.id : lead.auth_user_id},
           course = ${course || lead.course},
-          marketing_consent = ${newMarketing},
-          consent_source = ${locked ? lead.consent_source : consentSource},
-          marketing_consent_at = ${newMarketing !== lead.marketing_consent ? new Date() : lead.marketing_consent_at},
+          marketing_consent = ${marketing},
+          consent_source = ${consentSource},
+          marketing_consent_at = ${marketing !== lead.marketing_consent ? new Date() : lead.marketing_consent_at},
           lesson_wa = ${b.waLesson === true}
         where id = ${lead.id}`;
       [lead] = await tx`select * from leads where id = ${lead.id}`;
@@ -366,6 +411,11 @@ async function actLead(b: Any) {
   try { leadRow = await saveLead(); } catch (e: Any) {
     if (e?.code !== '23505') throw e;
     leadRow = await saveLead();
+  }
+  if (leadRow?.conflict) {
+    return { ok: false, errors: { [leadRow.conflict]: leadRow.conflict === 'phone'
+      ? 'This mobile number is already registered with a Google account. Use "Continue with Google" with that same account.'
+      : 'This email is already registered with Google. Use "Continue with Google" with that account.' } };
   }
 
   return {
@@ -396,10 +446,11 @@ async function actConfirm(b: Any) {
 
   const name = certificateName(b.name);
   if (!name) errors.name = 'Use English letters for your name (2–60 characters), exactly as it should be printed.';
-  const email = normalizeEmail(b.email);
+  // A Google-verified email is locked: it always stays the Google account's address.
+  const email = lead.verified ? lead.email : normalizeEmail(b.email);
   if (!email) errors.email = 'Please check your email address.';
-  const phone = normalizePhone(b.phone, b.countryCode || c.default_country_code || '91');
-  if (!phone) errors.phone = 'Please enter a valid WhatsApp mobile number, including the country code.';
+  const phone = normalizePhone(b.phone);
+  if (!phone) errors.phone = PHONE_ERROR;
   let emailCheck = lead.email_check;
   if (email && email !== lead.email) {
     emailCheck = await checkEmailDomain(email);
@@ -416,7 +467,7 @@ async function actConfirm(b: Any) {
   const edits = (emailChanged ? 1 : 0) + (phoneChanged ? 1 : 0) + (nameChanged ? 1 : 0);
   const [row] = await sql`update leads set
       name = ${name}, email = ${email}, phone = ${phone}, email_check = ${emailCheck},
-      email_status = ${emailChanged ? 'Unverified' : lead.email_status},
+      email_status = ${emailChanged ? 'Not verified' : lead.email_status},
       email_verified_at = ${emailChanged ? null : lead.email_verified_at},
       phone_status = ${phoneChanged ? 'Unverified' : lead.phone_status},
       phone_verified_at = ${phoneChanged ? null : lead.phone_verified_at},
@@ -429,6 +480,7 @@ async function actConfirm(b: Any) {
 
 async function actOtpSend(b: Any) {
   const c = await cfg();
+  if (!otpEnabled(c)) throw new UserError('Verification codes are switched off — your certificate is created straight away.', 'otp_off');
   const lead = await ownedLead(b);
   if (!lead.latest_attempt_id) throw new UserError('Finish the quiz first to unlock your certificate.');
   const target = otpTarget(c, lead);
@@ -467,6 +519,7 @@ async function actOtpSend(b: Any) {
 
 async function actOtpVerify(b: Any) {
   const c = await cfg();
+  if (!otpEnabled(c)) throw new UserError('Verification codes are switched off — your certificate is created straight away.', 'otp_off');
   const lead = await ownedLead(b);
   const code = String(b.code || '').replace(/\D/g, '');
   if (code.length !== 6) throw new UserError('Enter the 6-digit code.', 'code');
@@ -515,6 +568,30 @@ async function actOtpVerify(b: Any) {
     ok: true,
     certificate: { id: cert.id, name: cert.name, issuedAt: fmtDateLong(cert.issued_at), pageUrl, pdfUrl, score: cert.score, total: cert.total },
     emailed: mail.ok, whatsapped: wa.ok, masked: maskEmail(fresh.email)
+  };
+}
+
+/** Certificate straight after the details check (no code step). Safe to repeat: one certificate per student. */
+async function actCertIssue(b: Any) {
+  const c = await cfg();
+  if (otpEnabled(c)) throw new UserError('Please verify with the code first.', 'otp_required');
+  if (!truthy(c.cert_enabled, true)) throw new UserError('Certificates are switched off right now.', 'cert_off');
+  const lead = await ownedLead(b);
+  if (!lead.latest_attempt_id) throw new UserError('Finish the quiz first to unlock your certificate.');
+  if (!certificateName(lead.name)) throw new UserError('Please check the name on your certificate.', 'name');
+  const cert = await issueCertificate(c, lead, lead.verified ? lead.auth_provider || 'google' : 'unverified');
+  const pageUrl = certPageUrl(c, cert, true);
+  const pdfUrl = certPdfUrl(cert);
+  // Email copy only once an email provider is connected (Brevo); nothing is logged otherwise.
+  let mail = { ok: false, info: 'off' };
+  if (lead.src !== 'loadtest' && emailProvider() !== 'none' && c.email_from_address) {
+    mail = await sendEmail(lead, 'certificate', 'Your ZICA Creative Quest certificate', emailCertHtml(c, lead.name, pageUrl, pdfUrl, cert.id));
+    await sql`update certificates set email_sent = ${mail.ok ? 'Sent' : 'Not sent'} where id = ${cert.id}`;
+  }
+  return {
+    ok: true,
+    certificate: { id: cert.id, name: cert.name, issuedAt: fmtDateLong(cert.issued_at), pageUrl, pdfUrl, score: cert.score, total: cert.total },
+    emailed: mail.ok, whatsapped: false, masked: maskEmail(lead.email)
   };
 }
 
@@ -583,7 +660,8 @@ async function actAdminExport(b: Any) {
       'Marketing Consent': l.marketing_consent ? 'Yes' : 'No', 'Marketing Consent At': ist(l.marketing_consent_at), 'Consent Source': l.consent_source,
       'Email Check': l.email_check, 'Email Status': l.email_status, 'Phone Status': l.phone_status,
       'Learning Access': l.learning_access, 'Lessons Opened At': ist(l.lessons_opened_at),
-      'Name (first typed)': l.name_original, 'Email (first typed)': l.email_original, 'WhatsApp (first typed)': l.phone_original, 'Edits': l.edit_count
+      'Name (first typed)': l.name_original, 'Email (first typed)': l.email_original, 'WhatsApp (first typed)': l.phone_original, 'Edits': l.edit_count,
+      'Verified': l.verified ? 'TRUE' : 'FALSE', 'Auth Provider': l.auth_provider
     })),
     attempts: attempts.map((a: Any) => ({
       'Attempt ID': a.id, 'Lead ID': a.lead_id || '', 'Started': ist(a.started_at), 'Completed': ist(a.completed_at), 'Status': a.status,
@@ -705,11 +783,10 @@ async function linkAttempt(tx: Any, lead: Any, attempt: Any) {
 }
 
 function contactOf(l: Any) {
-  const p = parsePhoneNumberFromString(l.phone);
+  const national = String(l.phone || '').replace(/^\+91/, '');
   return {
-    name: l.name, email: l.email, phone: l.phone,
-    countryCode: p ? String(p.countryCallingCode) : '91', national: p ? String(p.nationalNumber) : l.phone.replace(/^\+/, ''),
-    emailVerified: !!l.email_verified_at, phoneVerified: !!l.phone_verified_at
+    name: l.name, email: l.email, phone: l.phone, countryCode: '91', national,
+    emailVerified: !!l.verified, phoneVerified: !!l.phone_verified_at, verified: !!l.verified, provider: l.auth_provider || 'manual'
   };
 }
 
@@ -1029,24 +1106,16 @@ function normalizeEmail(raw: unknown) {
   return /^[a-z0-9._%+'-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/.test(e) && !e.includes('..') ? e : '';
 }
 
-/** E.164 via libphonenumber; India must be a MOBILE number (6–9 series). */
-function normalizePhone(raw: unknown, cc: unknown) {
-  const s = String(raw || '').trim();
-  if (!s) return '';
-  const code = String(cc || '91').replace(/\D/g, '') || '91';
-  let candidate = s.replace(/[^\d+]/g, '');
-  if (candidate.startsWith('00')) candidate = '+' + candidate.slice(2);
-  if (!candidate.startsWith('+')) {
-    let d = candidate.replace(/^0+/, '');
-    if (code === '91' && d.length === 12 && d.startsWith('91')) d = d.slice(2);
-    candidate = '+' + code + d;
-  }
-  const p = parsePhoneNumberFromString(candidate);
-  if (!p || !p.isValid()) return '';
-  const type = p.getType();
-  if (p.countryCallingCode === '91' && type !== 'MOBILE') return '';
-  if (type && !['MOBILE', 'FIXED_LINE_OR_MOBILE'].includes(type)) return '';
-  return p.number; // +919876543210
+/** Indian mobile only: strip spaces, dashes, brackets and a leading +91 / 91 / 0;
+ *  then exactly 10 digits starting 6, 7, 8 or 9. Stored as +91XXXXXXXXXX. */
+const PHONE_ERROR = 'Enter a 10-digit Indian mobile number starting with 6, 7, 8 or 9.';
+function normalizePhone(raw: unknown) {
+  let d = String(raw || '').trim().replace(/[\s\-().]/g, '');
+  if (d.startsWith('+91')) d = d.slice(3);
+  else if (d.startsWith('0091')) d = d.slice(4);
+  else if (d.length === 12 && d.startsWith('91')) d = d.slice(2);
+  else if (d.length === 11 && d.startsWith('0')) d = d.slice(1);
+  return /^[6-9]\d{9}$/.test(d) ? '+91' + d : '';
 }
 
 const DISPOSABLE = new Set([

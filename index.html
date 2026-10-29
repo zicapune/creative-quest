@@ -141,22 +141,34 @@
           <p class="kicker mono">Step 1 of 2 · your details</p>
           <h2 class="h2" id="contactTitle" tabindex="-1">Unlock your free creative learning</h2>
           <p class="muted" id="contactCopy">Enter your details to access free introductory lessons, creative resources and your certificate from ZICA Pune.</p>
-          <form id="leadForm" class="form" novalidate autocomplete="on">
+          <!-- Step A: how do you want to continue? -->
+          <div class="signin" id="signinBox">
+            <button class="btn btn--google btn--block btn--xl" id="btnGoogle" type="button"><svg class="g-logo" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg><span>Continue with Google</span></button>
+            <p class="signin__why">Quickest — your name and email fill in by themselves, and your email is verified.</p>
+            <div class="or" role="separator"><span>or</span></div>
+            <button class="btn btn--ghost btn--block" id="btnNoGoogle" type="button">Continue without Google</button>
+            <button class="btn btn--link" id="btnBackScore0" type="button">Back to my score</button>
+          </div>
+
+          <!-- Step B: details -->
+          <form id="leadForm" class="form" novalidate autocomplete="on" hidden>
+            <div class="gbadge" id="gBadge" hidden><svg class="g-logo" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg><span><strong>Signed in with Google</strong><br><span id="gEmailLine"></span></span></div>
             <div class="field">
               <label for="fName">Name</label>
               <input class="input" id="fName" name="name" autocomplete="name" maxlength="80" placeholder="Your full name">
               <p class="field__err" id="eName"></p>
             </div>
-            <div class="field">
-              <label for="fEmail">Email address</label>
+            <div class="field" id="emailField">
+              <label for="fEmail">Email address <span class="lockbadge" id="emailLock" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>Verified by Google</span></label>
               <input class="input" id="fEmail" name="email" type="email" autocomplete="email" inputmode="email" maxlength="254" placeholder="you@example.com">
               <p class="field__err" id="eEmail"></p>
             </div>
             <div class="field">
-              <label for="fPhone">WhatsApp number</label>
-              <div class="phone">
-                <label class="phone__cc"><span>+</span><input class="input" id="fCc" name="cc" inputmode="numeric" maxlength="4" aria-label="Country code" autocomplete="tel-country-code"></label>
-                <input class="input" id="fPhone" name="tel" type="tel" inputmode="tel" autocomplete="tel-national" maxlength="18" placeholder="98765 43210">
+              <label for="fPhone">Mobile number (WhatsApp)</label>
+              <div class="phone phone--in">
+                <span class="phone__prefix" aria-hidden="true">+91</span>
+                <input class="input" id="fPhone" name="tel" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="16" placeholder="98765 43210" aria-label="10-digit mobile number">
+                <span class="phone__ok" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
               </div>
               <p class="field__err" id="ePhone"></p>
             </div>
@@ -177,7 +189,7 @@
             </div>
             <p class="notice" id="notice">You get the free lessons either way. We use your details to give you access, send your certificate and keep a record of your quiz — and message you about courses only if the box above is ticked. You can ask us to stop at any time.</p>
             <button class="btn btn--key btn--block btn--xl" id="btnLead" type="submit">Get Free Access</button>
-            <button class="btn btn--link" id="btnBackScore" type="button">Back to my score</button>
+            <button class="btn btn--link" id="btnBackScore" type="button">Back</button>
           </form>
         </div>
       </div>
@@ -198,7 +210,7 @@
           <div class="cert-offer__body">
             <p class="kicker mono">Step 2 of 2 · your certificate</p>
             <h3 class="cert-offer__title">Claim your certificate</h3>
-            <p>A ZICA Creative Quest certificate with your name on it. Check your details, verify with a quick code, and download it.</p>
+            <p id="certOfferText">A ZICA Creative Quest certificate with your name on it. Check your details and download it instantly.</p>
             <button class="btn btn--key btn--block" id="btnClaim" type="button">Get My Certificate</button>
           </div>
         </div>
@@ -253,9 +265,10 @@
                 <button type="button" class="detail__edit" aria-label="Edit WhatsApp number"><svg class="ic-pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg><svg class="ic-ok" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
               </div>
               <div class="detail__editor" hidden>
-                <div class="phone">
-                  <label class="phone__cc"><span>+</span><input class="input" id="edCc" inputmode="numeric" maxlength="4" aria-label="Country code"></label>
-                  <input class="input" id="edPhone" type="tel" inputmode="tel" maxlength="18" aria-label="WhatsApp number">
+                <div class="phone phone--in">
+                  <span class="phone__prefix" aria-hidden="true">+91</span>
+                  <input class="input" id="edPhone" type="tel" inputmode="numeric" maxlength="16" aria-label="10-digit mobile number">
+                  <span class="phone__ok" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
                 </div>
               </div>
               <p class="field__err" id="ecPhone"></p>
@@ -265,8 +278,8 @@
             <input type="checkbox" id="fConfirm"><span class="check__box" aria-hidden="true"></span>
             <span>My name is spelled correctly and these contact details are mine.</span>
           </label>
-          <p class="notice" id="otpHint">We'll send a 6-digit code to your email to confirm it's really you.</p>
-          <button class="btn btn--key btn--block btn--xl" id="btnSendCode" type="button">Send My Verification Code</button>
+          <p class="notice" id="otpHint">Your certificate is created straight away — download it on the next screen.</p>
+          <button class="btn btn--key btn--block btn--xl" id="btnSendCode" type="button">Create My Certificate</button>
           <button class="btn btn--link" id="btnBackDone" type="button">Back</button>
         </div>
       </div>

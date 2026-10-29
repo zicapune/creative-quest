@@ -328,6 +328,34 @@ body[data-screen="quiz"] .bg__floor { opacity: .45; }
 .notice { margin: 2px 0 4px; font-size: 13px; line-height: 1.55; color: var(--mute); }
 .notice a { color: var(--act); }
 .form .btn--link { justify-self: center; }
+
+/* Sign-in choice */
+.signin { display: grid; gap: 12px; }
+.signin .btn--link { justify-self: center; }
+.btn--google { color: #1f1f1f; background: #fff; border: 1px solid #dadce0; box-shadow: 0 10px 30px -14px rgba(255,255,255,.35); font-weight: 700; }
+.btn--google:hover { background: #f8f9fb; }
+.btn--google.is-busy::after { border-color: rgba(0,0,0,.15); border-top-color: #1f1f1f; }
+.btn--google.is-busy > * { opacity: 0; }
+.g-logo { width: 22px; height: 22px; flex: none; }
+.signin__why { margin: -2px 0 0; text-align: center; font-size: 13.5px; color: var(--mute); }
+.or { display: flex; align-items: center; gap: 12px; color: var(--faint); font: 500 12px/1 var(--mono); text-transform: uppercase; letter-spacing: .12em; }
+.or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.gbadge { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: var(--r-md); background: rgba(92,225,230,.07); border: 1px solid rgba(92,225,230,.35); font-size: 14px; line-height: 1.4; color: #dfe2ec; overflow-wrap: anywhere; }
+.gbadge .g-logo { width: 26px; height: 26px; padding: 4px; border-radius: 50%; background: #fff; box-sizing: content-box; }
+.gbadge strong { color: var(--act); }
+.lockbadge { display: inline-flex; align-items: center; gap: 5px; margin-left: 6px; padding: 2px 8px; border-radius: 99px; font: 600 11.5px/1.4 var(--mono); color: var(--ink); background: var(--act); vertical-align: 1px; }
+.lockbadge svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.4; }
+.input[readonly] { color: #b9bfd1; background: rgba(92,225,230,.05); border-color: rgba(92,225,230,.35); cursor: not-allowed; }
+.input[readonly]:focus { box-shadow: none; }
+/* +91 phone field */
+.phone.phone--in { position: relative; display: block; }
+.phone--in .phone__prefix { position: absolute; left: 0; top: 0; bottom: 0; width: 62px; display: grid; place-items: center; border-right: 1px solid var(--line-2); color: #dfe2ec; font: 600 16px/1 var(--mono); pointer-events: none; }
+.phone--in .input { padding-left: 76px; padding-right: 46px; font: 600 17px/1 var(--mono); letter-spacing: .04em; }
+.phone--in .phone__ok { position: absolute; right: 14px; top: 50%; width: 22px; height: 22px; margin-top: -11px; border-radius: 50%; background: var(--act); display: grid; place-items: center; transform: scale(0); transition: transform .25s var(--ease); }
+.phone--in .phone__ok svg { width: 14px; height: 14px; fill: none; stroke: var(--ink); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.phone--in.is-valid .phone__ok { transform: scale(1); }
+.phone--in.is-valid .input:not(:focus) { border-color: rgba(92,225,230,.55); }
+.detail.is-locked .detail__edit { display: none; }
 @media (min-width: 900px) {
   .contact.has-art { grid-template-columns: 1fr 560px; gap: 40px; }
   .contact__art .avatar { max-height: 440px; }

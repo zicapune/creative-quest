@@ -46,7 +46,10 @@ const jitter = (ms) => ms * (0.5 + Math.random());
 
 async function student(n) {
   const log = { n, ok: false };
-  const phone = '9' + String(990000000 + n).slice(-9);
+  const digits = '9' + String(990000000 + n).slice(-9);
+  // Students type numbers in every style; all must land as +91XXXXXXXXXX.
+  const styles = [digits, '+91 ' + digits.slice(0, 5) + ' ' + digits.slice(5), '0' + digits, '91-' + digits.slice(0, 5) + '-' + digits.slice(5)];
+  const phone = styles[n % styles.length];
   // Attempt 1 → set A; every 4th student also plays a retry (set B) like a curious student would.
   const s = await call('start', { lt: TOKEN, attemptNo: 1, device: 'mobile', src: 'loadtest' });
   if (s.questions.length < 1) throw new Error('no questions');
@@ -63,21 +66,35 @@ async function student(n) {
   }
   const f = await call('finish', { attemptId: s.attemptId });
   if (f.score !== expected) throw new Error(`score ${f.score} != expected ${expected}`);
+  if (n === 1) { // an expired / fake Google token must be refused, never saved as verified
+    const bad = await call('lead', { lt: TOKEN, attemptId: s.attemptId, accessToken: 'not-a-real-token', name: 'x', phone }).catch((e) => ({ code: e.code }));
+    if (bad.code !== 'google_expired') throw new Error('fake Google token was not refused');
+    const badPhone = await call('lead', { lt: TOKEN, attemptId: s.attemptId, name: 'load tester', email: 'loadtest.x@gmail.com', phone: '5123456789' });
+    if (badPhone.ok || !badPhone.errors?.phone) throw new Error('invalid phone was accepted');
+  }
   const lead = await call('lead', { lt: TOKEN, attemptId: s.attemptId, name: 'load tester ' + n, email: `loadtest.${n}@gmail.com`,
-    countryCode: '91', phone, marketing: n % 2 === 0, consentSource: n % 2 === 0 ? 'Pre-ticked, kept' : 'Unticked by user' });
+    phone, marketing: n % 2 === 0, consentSource: n % 2 === 0 ? 'Pre-ticked, kept' : 'Unticked by user' });
   if (!lead.ok) throw new Error('lead rejected ' + JSON.stringify(lead.errors));
+  if (lead.contact.phone !== '+91' + digits) throw new Error('phone stored as ' + lead.contact.phone);
+  if (lead.contact.verified !== false || lead.contact.provider !== 'manual') throw new Error('manual lead not marked unverified');
   if (n % 5 === 0) { // double-submit the same form: must not create a second lead
-    const dup = await call('lead', { lt: TOKEN, attemptId: s.attemptId, name: 'load tester ' + n, email: `loadtest.${n}@gmail.com`, countryCode: '91', phone, leadKey: lead.leadKey });
+    const dup = await call('lead', { lt: TOKEN, attemptId: s.attemptId, name: 'load tester ' + n, email: `loadtest.${n}@gmail.com`, phone, leadKey: lead.leadKey });
     if (dup.leadId !== lead.leadId) throw new Error('duplicate lead created');
   }
-  const conf = await call('confirm', { leadId: lead.leadId, leadKey: lead.leadKey, name: 'Load Tester ' + String.fromCharCode(65 + (n % 26)), email: `loadtest.${n}@gmail.com`, countryCode: '91', phone });
+  const conf = await call('confirm', { leadId: lead.leadId, leadKey: lead.leadKey, name: 'Load Tester ' + String.fromCharCode(65 + (n % 26)), email: `loadtest.${n}@gmail.com`, phone: digits });
   if (!conf.ok) throw new Error('confirm rejected ' + JSON.stringify(conf.errors));
-  const otp = await call('otp_send', { leadId: lead.leadId, leadKey: lead.leadKey });
-  if (!otp.testCode) throw new Error('no test code for load-test lead');
-  const verifyBody = { leadId: lead.leadId, leadKey: lead.leadKey, code: otp.testCode };
-  const [v1, v2] = await Promise.all([call('otp_verify', verifyBody), n % 4 === 0 ? call('otp_verify', verifyBody).catch((e) => ({ err: e.message })) : Promise.resolve(null)]);
-  if (v2 && v2.err) throw new Error('double verify: second tap failed (' + v2.err + ')');
-  if (v2 && v2.certificate.id !== v1.certificate.id) throw new Error('double verify made two certificates');
+  let v1, v2;
+  if (OTP) { // only when the dormant code step is switched on (settings.otp_enabled = true)
+    const otp = await call('otp_send', { leadId: lead.leadId, leadKey: lead.leadKey });
+    if (!otp.testCode) throw new Error('no test code for load-test lead');
+    const verifyBody = { leadId: lead.leadId, leadKey: lead.leadKey, code: otp.testCode };
+    [v1, v2] = await Promise.all([call('otp_verify', verifyBody), n % 4 === 0 ? call('otp_verify', verifyBody).catch((e) => ({ err: e.message })) : Promise.resolve(null)]);
+  } else { // certificate straight away; a double tap must give the same certificate
+    const body = { leadId: lead.leadId, leadKey: lead.leadKey };
+    [v1, v2] = await Promise.all([call('cert_issue', body), n % 4 === 0 ? call('cert_issue', body).catch((e) => ({ err: e.message })) : Promise.resolve(null)]);
+  }
+  if (v2 && v2.err) throw new Error('double tap: second tap failed (' + v2.err + ')');
+  if (v2 && v2.certificate.id !== v1.certificate.id) throw new Error('double tap made two certificates');
   const t0 = performance.now();
   const pdf = await fetch(v1.certificate.pdfUrl, { headers: ANON ? { apikey: ANON, authorization: 'Bearer ' + ANON } : {} });
   const bytes = new Uint8Array(await pdf.arrayBuffer());
@@ -99,7 +116,9 @@ async function student(n) {
 
 const pct = (a, p) => { const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p / 100 * s.length))] || 0; };
 
+let OTP = false;
 (async () => {
+  OTP = (await call('boot')).otpEnabled === true;
   say(`Load test: ${USERS} students at once against ${URL_}`);
   await call('admin_purge_loadtest', { token: TOKEN }).catch(() => {});
   const t0 = performance.now();

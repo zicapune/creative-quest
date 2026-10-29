@@ -41,6 +41,8 @@ window.CQ_CONFIG = {
     hasLanding: false,
     waAvailable: false,
     otpChannel: 'email',
+    otpEnabled: false,          // 6-digit code step (needs Brevo) — dormant; live value comes from the otp_enabled setting
+    googleLogin: true,          // "Continue with Google" (Supabase Auth Google provider)
     cert: {
       enabled: true,
       title: 'Certificate of Completion',

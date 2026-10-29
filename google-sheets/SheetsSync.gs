@@ -41,7 +41,7 @@ var SYNC = {
     leads: ['Lead ID', 'Created', 'Updated', 'Name', 'Email', 'WhatsApp', 'Course Interest', 'Source', 'Campaign', 'Quiz Status',
       'Latest Score', 'Best Score', 'Total Questions', 'Attempts', 'Marketing Consent', 'Marketing Consent At', 'Consent Source', 'Email Check',
       'Email Status', 'Phone Status', 'Learning Access', 'Lessons Opened At', 'Name (first typed)', 'Email (first typed)',
-      'WhatsApp (first typed)', 'Edits'],
+      'WhatsApp (first typed)', 'Edits', 'Verified', 'Auth Provider'],
     attempts: ['Attempt ID', 'Lead ID', 'Started', 'Completed', 'Status', 'Attempt No', 'Question Set', 'Score', 'Total', 'Answers', 'Result',
       'Source', 'Campaign', 'Device'],
     certificates: ['Certificate ID', 'Lead ID', 'Name on Certificate', 'Issued', 'Updated', 'Score', 'Total', 'Verified Via',
@@ -148,6 +148,7 @@ function resyncEverything() {
 function upsertRows_(tabName, headers, rows) {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(tabName);
   if (!sh) throw new Error('Missing tab ' + tabName + ' — run setupSheetsSync() first.');
+  ensureHeaders_(sh, headers);
   var last = sh.getLastRow();
   var data = last >= 2 ? sh.getRange(2, 1, last - 1, headers.length).getValues() : [];
   var index = {};
@@ -159,6 +160,14 @@ function upsertRows_(tabName, headers, rows) {
     else { index[id] = data.length; data.push(line); }
   });
   if (data.length) sh.getRange(2, 1, data.length, headers.length).setValues(data);
+}
+
+/** New columns added in a later version (e.g. Verified, Auth Provider) appear by themselves. */
+function ensureHeaders_(sh, headers) {
+  var cur = sh.getRange(1, 1, 1, headers.length).getValues()[0];
+  if (cur.join('|') === headers.join('|')) return;
+  sh.getRange(1, 1, 1, headers.length).setValues([headers])
+    .setFontWeight('bold').setFontColor('#ffffff').setBackground('#1d1736');
 }
 
 /* ============================ QUESTIONS & SETTINGS ============================ */
