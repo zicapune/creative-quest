@@ -143,7 +143,7 @@ jobs:
             SB_URL="https://$REF.supabase.co"
           fi
           mkdir -p _site
-          cp -r index.html certificate.html assets _site/
+          cp -r index.html certificate.html privacy.html assets _site/
           touch _site/.nojekyll
           [ -f CNAME ] && cp CNAME _site/ || true
           if grep -q "SUPABASE_URL: 'https://" _site/assets/js/config.js; then

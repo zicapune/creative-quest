@@ -36,7 +36,7 @@ window.CQ_CONFIG = {
     marketingPreticked: true,   // updates checkbox starts ticked (they can untick)
     rewardText: 'Free introductory lessons in animation, VFX, gaming & design',
     eligibilityNote: '',
-    privacyUrl: '',
+    privacyUrl: 'https://zicapune.github.io/creative-quest/privacy.html',
     contactLine: 'ZICA Pune, Kothrud',
     hasLanding: false,
     waAvailable: false,
