@@ -29,7 +29,16 @@
     mode: ''               // 'google' | 'manual' — how the details form was filled
   };
   var SUPA = String(CFG.SUPABASE_URL || '').replace(/\/+$/, '');
-  function googleAvailable() { return API.mode === 'live' && !!SUPA && C.googleLogin !== false; }
+  // The Google button only shows once Supabase confirms the Google provider is switched on,
+  // so a half-finished setup can never strand a student on an error page.
+  var googleReady = false;
+  function googleAvailable() { return API.mode === 'live' && !!SUPA && C.googleLogin !== false && googleReady; }
+  if (API.mode === 'live' && SUPA && window.fetch) {
+    fetch(SUPA + '/auth/v1/settings', { headers: { apikey: CFG.SUPABASE_ANON_KEY || '' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { googleReady = !!(j && j.external && j.external.google); })
+      .catch(function () { googleReady = false; });
+  }
   function otpOn() { return C.otpEnabled === true; }
 
   /* ---------------------------- helpers ---------------------------- */
@@ -584,6 +593,7 @@
     var token = hp.get('access_token') || '';
     var err = hp.get('error_description') || hp.get('error') || qp.get('error_description') || qp.get('error') || '';
     if (!token && !err) return;
+    googleReady = true; // we just came back from Google, so the provider is on
     ['error', 'error_code', 'error_description', 'code'].forEach(function (k) { qp.delete(k); });
     try { history.replaceState(null, '', location.pathname + (qp.toString() ? '?' + qp.toString() : '')); } catch (e) {}
 
