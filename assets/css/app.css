@@ -400,8 +400,11 @@ body[data-screen="quiz"] .bg__floor { opacity: .45; }
 .cert__bg .ring1, .cert__bg .ring2 { border-radius: 50%; border: calc(var(--u) * 1) solid; opacity: .55; }
 .cert__bg .ring1 { width: calc(var(--u) * 88); height: calc(var(--u) * 88); right: calc(var(--u) * 52); top: calc(var(--u) * 60); border-color: #5ce1e6; }
 .cert__bg .ring2 { width: calc(var(--u) * 56); height: calc(var(--u) * 56); right: calc(var(--u) * 68); top: calc(var(--u) * 76); border-color: #ff7a1a; }
-.cert__logo { left: calc(var(--u) * 58); top: calc(var(--u) * 52); height: calc(var(--u) * 44); display: flex; align-items: center; }
-.cert__logo img { height: 100%; max-width: calc(var(--u) * 170); object-fit: contain; object-position: left center; }
+.cert__logo { left: calc(var(--u) * 58); top: calc(var(--u) * 50); height: calc(var(--u) * 72); display: flex; align-items: center; }
+.cert__logo img { height: 100%; max-width: calc(var(--u) * 230); object-fit: contain; object-position: left center; }
+.cert__logo2 { right: calc(var(--u) * 58); top: calc(var(--u) * 50); height: calc(var(--u) * 56); }
+.cert__logo2 img { height: 100%; max-width: calc(var(--u) * 150); object-fit: contain; object-position: right center; display: block; }
+.cert.has-logo2 .cert__bg .ring1, .cert.has-logo2 .cert__bg .ring2 { display: none; }
 .cert__inst { font-weight: 700; color: #0d0e13; white-space: nowrap; }
 .cert__title, .cert__presented, .cert__name, .cert__signame, .cert__sigtitle, .cert__score { left: 0; right: 0; text-align: center; white-space: nowrap; }
 .cert__title { font-weight: 800; letter-spacing: calc(var(--u) * 1.2); text-transform: uppercase; color: #0d0e13; }

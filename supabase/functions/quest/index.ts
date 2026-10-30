@@ -270,7 +270,7 @@ function certPublicConfig(c: Record<string, string>) {
   return {
     enabled: truthy(c.cert_enabled, true), title: c.cert_title, presented: c.cert_presented, body: c.cert_body,
     showScore: truthy(c.cert_show_score), theme: c.cert_theme === 'dark' ? 'dark' : 'light',
-    bgUrl: c.cert_bg_url, logoUrl: c.cert_logo_url, signatureUrl: c.cert_signature_url,
+    bgUrl: c.cert_bg_url, logoUrl: c.cert_logo_url, logo2Url: c.cert_logo2_url, signatureUrl: c.cert_signature_url,
     signatoryName: c.signatory_name, signatoryTitle: c.signatory_title, instituteLine: c.cert_institute_line
   };
 }
@@ -930,15 +930,20 @@ async function buildCertificatePdf(c: Record<string, string>, cert: Any): Promis
   const fontS = await safeFont(fs, StandardFonts.Helvetica);
   const fontR = await safeFont(fr, StandardFonts.Helvetica);
 
+  // Logos: ZICA top-left, partner logo (ZEE Learn) top-right
+  const [logoBytes, logo2Bytes, bgBytes] = await Promise.all([conf.logoUrl, conf.logo2Url, conf.bgUrl].map((u) => loadAsset(absUrl(c, u))));
+  const logo = await embedImage(doc, logoBytes);
+  const logo2 = await embedImage(doc, logo2Bytes);
+
   // Background art (or the built-in design)
-  const bg = await embedImage(doc, await loadAsset(absUrl(c, conf.bgUrl)));
+  const bg = await embedImage(doc, bgBytes);
   if (bg) {
     // "cover" fit: fills the page without stretching; any overflow is trimmed at the page edge
     const k = Math.max(W / bg.width, H / bg.height);
     const bw = bg.width * k, bh = bg.height * k;
     page.drawImage(bg, { x: (W - bw) / 2, y: (H - bh) / 2, width: bw, height: bh });
   }
-  else drawBuiltInBackground(page, W, H, dark);
+  else drawBuiltInBackground(page, W, H, dark, !logo2);
 
   const center = (text: string, font: PDFFont, size: number, y: number, color: RGB, spacing = 0) => {
     const w = font.widthOfTextAtSize(text, size) + spacing * (text.length - 1);
@@ -949,13 +954,16 @@ async function buildCertificatePdf(c: Record<string, string>, cert: Any): Promis
     }
   };
 
-  // Logo top-left, otherwise institute name as text
-  const logo = await embedImage(doc, await loadAsset(absUrl(c, conf.logoUrl)));
+  // Logo top-left (otherwise institute name as text); partner logo top-right
   if (logo) {
-    const { w, h } = fitBox(logo, 170, 44);
-    page.drawImage(logo, { x: 58, y: H - 52 - h, width: w, height: h });
+    const { w, h } = fitBox(logo, 230, 72);
+    page.drawImage(logo, { x: 58, y: H - 50 - h, width: w, height: h });
   } else {
     page.drawText(stripForFont(c.institute_name || 'ZICA Pune', fontB), { x: 58, y: H - 76, size: 15, font: fontB, color: ink });
+  }
+  if (logo2) {
+    const { w, h } = fitBox(logo2, 150, 56);
+    page.drawImage(logo2, { x: W - 58 - w, y: H - 50 - h, width: w, height: h });
   }
 
   // Title block
@@ -1008,7 +1016,7 @@ function fitBox(img: PDFImage, maxW: number, maxH: number) {
   return { w, h };
 }
 
-function drawBuiltInBackground(page: Any, W: number, H: number, dark: boolean) {
+function drawBuiltInBackground(page: Any, W: number, H: number, dark: boolean, rings = true) {
   const line = dark ? hex('#2B2F42') : hex('#D9DCE6');
   page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: dark ? hex('#0D0E13') : hex('#FAF8F3') });
   // Top strip: active cyan · selection orange · keyframe amber (the deck's colours)
@@ -1019,11 +1027,13 @@ function drawBuiltInBackground(page: Any, W: number, H: number, dark: boolean) {
   page.drawRectangle({ x: 24, y: 24, width: W - 48, height: H - 57, borderColor: dark ? hex('#FFB547') : hex('#0D0E13'), borderWidth: 1.3, opacity: 0 });
   page.drawRectangle({ x: 31, y: 31, width: W - 62, height: H - 71, borderColor: dark ? hex('#2B2F42') : hex('#E0A458'), borderWidth: 0.6, opacity: 0 });
   // Viewport corner: faint floor grid lines + orbit rings (top right)
-  for (let i = 0; i < 6; i++) {
-    page.drawLine({ start: { x: W - 210 + i * 30, y: H - 40 }, end: { x: W - 40, y: H - 210 + i * 30 }, thickness: 0.4, color: line, opacity: 0.9 });
+  if (rings) { // (the partner logo sits in this corner when there is one)
+    for (let i = 0; i < 6; i++) {
+      page.drawLine({ start: { x: W - 210 + i * 30, y: H - 40 }, end: { x: W - 40, y: H - 210 + i * 30 }, thickness: 0.4, color: line, opacity: 0.9 });
+    }
+    page.drawCircle({ x: W - 96, y: H - 104, size: 44, borderColor: hex('#5CE1E6'), borderWidth: 1, opacity: 0, borderOpacity: 0.55 });
+    page.drawCircle({ x: W - 96, y: H - 104, size: 28, borderColor: hex('#FF7A1A'), borderWidth: 1, opacity: 0, borderOpacity: 0.55 });
   }
-  page.drawCircle({ x: W - 96, y: H - 104, size: 44, borderColor: hex('#5CE1E6'), borderWidth: 1, opacity: 0, borderOpacity: 0.55 });
-  page.drawCircle({ x: W - 96, y: H - 104, size: 28, borderColor: hex('#FF7A1A'), borderWidth: 1, opacity: 0, borderOpacity: 0.55 });
   // Bottom: an animation timeline with keyframe diamonds
   const ty = 40;
   page.drawLine({ start: { x: 220, y: ty }, end: { x: W - 220, y: ty }, thickness: 0.8, color: line });

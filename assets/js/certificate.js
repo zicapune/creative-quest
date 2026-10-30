@@ -35,6 +35,7 @@ window.CQCert = (function () {
         (conf.logoUrl ? '<img alt="ZICA" src="' + esc(conf.logoUrl) + '">' : '') +
         '<span class="cert__inst" style="font-size:calc(var(--u) * 15)">' + esc(conf.instituteLine || 'ZICA Pune') + '</span>' +
       '</div>' +
+      (conf.logo2Url ? '<div class="cert__logo2"><img alt="ZEE Learn" src="' + esc(conf.logo2Url) + '"></div>' : '') +
       '<div class="cert__title" style="' + at(null, 430, 30) + '">' + esc(conf.title || 'Certificate of Completion') + '</div>' +
       '<div class="cert__presented" style="' + at(null, 392, 13) + '">' + esc(conf.presented || '') + '</div>' +
       '<div class="cert__name" style="' + at(null, 330, 46) + '"><span>' + esc(name) + '</span></div>' +
@@ -64,6 +65,12 @@ window.CQCert = (function () {
     if (logo) {
       logo.onload = function () { el.querySelector('.cert__inst').style.display = 'none'; };
       logo.onerror = function () { logo.remove(); };
+    }
+    var logo2 = el.querySelector('.cert__logo2 img');
+    el.classList.remove('has-logo2');
+    if (logo2) {
+      logo2.onload = function () { el.classList.add('has-logo2'); };
+      logo2.onerror = function () { logo2.parentNode.remove(); };
     }
     var sig = el.querySelector('.cert__sig');
     if (sig) sig.onerror = function () { sig.remove(); };
