@@ -418,7 +418,7 @@ body[data-screen="quiz"] .bg__floor { opacity: .45; }
 .cert__meta > div { position: absolute; white-space: nowrap; }
 .cert__label { font-weight: 600; color: #4a4f66; letter-spacing: .02em; }
 .cert__val { font-weight: 700; color: #0d0e13; }
-.cert__sig { left: calc(50% - var(--u) * 105); width: calc(var(--u) * 210); height: calc(var(--u) * 62); bottom: calc(var(--u) * 91); object-fit: contain; z-index: 1; }
+.cert__sig { left: calc(50% - var(--u) * 105); width: calc(var(--u) * 210); height: calc(var(--u) * 62); bottom: calc(var(--u) * 100); object-fit: contain; z-index: 1; }
 .cert__sigline { left: calc(50% - var(--u) * 95); width: calc(var(--u) * 190); bottom: calc(var(--u) * 96); height: calc(var(--u) * .8); background: #4a4f66; }
 .cert__signame { font-weight: 700; color: #0d0e13; }
 .cert__sigtitle { font-weight: 400; color: #4a4f66; }

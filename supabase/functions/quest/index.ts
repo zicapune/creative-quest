@@ -994,7 +994,7 @@ async function buildCertificatePdf(c: Record<string, string>, cert: Any): Promis
   const sig = await embedImage(doc, await loadAsset(absUrl(c, conf.signatureUrl)));
   if (sig) {
     const { w, h } = fitBox(sig, 210, 62);
-    page.drawImage(sig, { x: W / 2 - w / 2, y: 91, width: w, height: h }); // dips just below the line, like real ink
+    page.drawImage(sig, { x: W / 2 - w / 2, y: 100, width: w, height: h }); // sits just above the line
   }
   page.drawLine({ start: { x: W / 2 - 95, y: 96 }, end: { x: W / 2 + 95, y: 96 }, thickness: 0.8, color: soft });
   center(stripForFont(conf.signatoryName || '', fontB), fontB, 12.5, 80, ink);
